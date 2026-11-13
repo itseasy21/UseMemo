@@ -1,0 +1,11 @@
+[package]
+name = "memo-audio-capture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Clean-room dual-stream audio DSP core for Use Memo"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
