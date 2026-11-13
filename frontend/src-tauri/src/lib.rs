@@ -3,6 +3,7 @@ pub mod error;
 pub mod export;
 pub mod generated_brand;
 pub mod model_registry;
+pub mod models;
 pub mod screenshot;
 pub mod storage;
 pub mod synthesis;
