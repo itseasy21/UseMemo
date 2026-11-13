@@ -42,7 +42,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M3.4 Deterministic anti-hallucination verifier (evidence, owner, deadline gates) + tests
 - [x] M3.5 Synthesis orchestrator with strict JSON parsing (fences/prose tolerated) and fail-closed behavior
 - [ ] M3.6 Markdown vault exporter with YAML frontmatter and relative WebP assets + tests
-- [ ] M3.7 Screenshot dHash deduplication, WebP path planner, and interval policy + tests
+- [x] M3.7 Screenshot dHash deduplication, WebP path planner, and interval policy + tests
 - [x] M3.8 Hardware-to-model tier selector and LiteRT model registry + tests
 
 ## M4 — Tauri application shell & IPC
@@ -50,7 +50,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M4.1 Tauri 2 config generation, capabilities, app/lib entrypoints
 - [ ] M4.2 Tauri commands for brand, sessions, notes, screenshots, synthesis, search, export, models
 - [ ] M4.3 Event contract constants and typed frontend event hooks (`audio:levels`, `asr:segment-delta`, `screenshot:captured`, `synthesis:progress`, `models:download-progress`)
-- [ ] M4.4 Screenshot scheduler core (interval, manual snap, single-session capture lease)
+- [x] M4.4 Screenshot scheduler core (interval, manual snap, single-session capture lease)
 - [ ] M4.5 LiteRT model downloader core (resumable, SHA-256 verification) + tests
 - [ ] M4.6 Tauri `cargo check` / unit-test pass on host
 
