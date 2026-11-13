@@ -19,7 +19,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M1.3 Clone upstream `Zackriya-Solutions/meetily` at stable tag and document revision
 - [x] M1.4 Inspect upstream audio capture stack and write harvest map
 - [x] M1.5 Extract/clean dual-stream ring-buffer audio crate (`crates/memo-audio-capture`)
-- [ ] M1.6 Record upstream Cargo `[patch.crates-io]` fix in workspace root
+- [x] M1.6 Record upstream Cargo `[patch.crates-io]` fix in workspace root
 - [!] M1.7 Full upstream baseline `pnpm tauri build --debug` — Rust/cmake/protobuf are installed, but upstream
       still needs an unshipped `llama-helper` binary plus network FFmpeg/ONNX downloads; recorded as blocked
 
