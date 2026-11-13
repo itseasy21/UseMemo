@@ -1,4 +1,9 @@
-mod generated_brand;
+pub mod brand;
+pub mod error;
+pub mod generated_brand;
+pub mod model_registry;
+pub mod storage;
+pub mod synthesis;
 
 use serde::Serialize;
 

@@ -16,7 +16,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 
 - [x] M1.1 Implement `scripts/probe-host-hardware.sh` and emit `build-env.json`
 - [x] M1.2 Run probe on host and commit generated report
-- [~] M1.3 Clone upstream `Zackriya-Solutions/meetily` at stable tag and document revision
+- [x] M1.3 Clone upstream `Zackriya-Solutions/meetily` at stable tag and document revision
 - [x] M1.4 Inspect upstream audio capture stack and write harvest map
 - [x] M1.5 Extract/clean dual-stream ring-buffer audio crate (`crates/memo-audio-capture`)
 - [x] M1.6 Record upstream Cargo `[patch.crates-io]` fix in workspace root
@@ -31,6 +31,8 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M2.4 Generate and commit brand outputs; add `brand:apply` / `brand:check` scripts
 - [x] M2.5 Add brand codegen tests and prove secondary-profile rebrand
 - [x] M2.6 Implement runtime `brand.override.json` merge in Rust
+      (allow-listed theme/assets/prompts only; identity and vault paths are immutable)
+
 
 ## M3 — Core domain: storage, synthesis, verifier
 
@@ -38,7 +40,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M3.2 Storage repository with migrations, FTS5 search (`bm25`, `snippet`), and tests
 - [x] M3.3 Grounded context builder with indexed `[N-L#]`, `[T-MM:SS]`, `[S-MM:SS]` sources
 - [x] M3.4 Deterministic anti-hallucination verifier (evidence, owner, deadline gates) + tests
-- [x] M3.5 Synthesis orchestrator with strict JSON schema parsing and repair/fallback path
+- [x] M3.5 Synthesis orchestrator with strict JSON parsing (fences/prose tolerated) and fail-closed behavior
 - [x] M3.6 Markdown vault exporter with YAML frontmatter and relative WebP assets + tests
 - [x] M3.7 Screenshot dHash deduplication, WebP path planner, and interval policy + tests
 - [x] M3.8 Hardware-to-model tier selector and LiteRT model registry + tests
