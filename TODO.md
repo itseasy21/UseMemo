@@ -41,7 +41,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M3.3 Grounded context builder with indexed `[N-L#]`, `[T-MM:SS]`, `[S-MM:SS]` sources
 - [x] M3.4 Deterministic anti-hallucination verifier (evidence, owner, deadline gates) + tests
 - [x] M3.5 Synthesis orchestrator with strict JSON parsing (fences/prose tolerated) and fail-closed behavior
-- [ ] M3.6 Markdown vault exporter with YAML frontmatter and relative WebP assets + tests
+- [x] M3.6 Markdown vault exporter with YAML frontmatter and relative WebP assets + tests
 - [x] M3.7 Screenshot dHash deduplication, WebP path planner, and interval policy + tests
 - [x] M3.8 Hardware-to-model tier selector and LiteRT model registry + tests
 

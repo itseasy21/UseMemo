@@ -1,5 +1,6 @@
 pub mod brand;
 pub mod error;
+pub mod export;
 pub mod generated_brand;
 pub mod model_registry;
 pub mod screenshot;
