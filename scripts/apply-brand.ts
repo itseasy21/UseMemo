@@ -278,6 +278,7 @@ export function renderTauriConfig(manifest: BrandManifest, version = "0.1.0"): s
     },
     app: {
       withGlobalTauri: false,
+      macOSPrivateApi: true,
       windows: [
         {
           label: "main",
@@ -317,6 +318,10 @@ export function renderTauriConfig(manifest: BrandManifest, version = "0.1.0"): s
         },
       ],
       security: {
+        assetProtocol: {
+          enable: true,
+          scope: ["$APPDATA/**", "$APPLOCALDATA/**", "$APPCACHE/**", "$TEMP/**"],
+        },
         csp: [
           "default-src 'self'",
           "script-src 'self' 'unsafe-inline'",
