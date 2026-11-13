@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+frontend/.next/
+frontend/out/
+frontend/dist/
+frontend/src-tauri/target/
+target/
+dist/
+*.tsbuildinfo
+
+# Generated runtime data
+build-env.json
+*.db
+*.db-shm
+*.db-wal
+media/
+exports/
+litert_cache/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Brand runtime overrides (never commit deployment-specific overrides)
+brand/brand.override.json
+
+# Native build artifacts
+crates/memo-litert-bridge/build/
+crates/memo-litert-bridge/**/*.o
+crates/memo-litert-bridge/**/*.a
+.DS_Store
+
+# Editor
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Upstream checkout (when cloning inside the workspace for inspection)
+upstream/
