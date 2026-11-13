@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Use Memo app icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101a1e"/>
+      <stop offset="1" stop-color="#0a1013"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0" y1="0.5" x2="1" y2="0.5">
+      <stop offset="0" stop-color="#34d3a0"/>
+      <stop offset="1" stop-color="#6aa8f8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <rect x="196" y="160" width="632" height="704" rx="72" fill="#132025" stroke="#2b3d44" stroke-width="8"/>
+  <g stroke="#54707a" stroke-width="28" stroke-linecap="round" opacity="0.75">
+    <path d="M300 312h360"/>
+    <path d="M300 396h268"/>
+  </g>
+  <path d="M300 500h84l44 120 56-212 52 152 40-60h148" fill="none" stroke="url(#wave)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <g stroke="#54707a" stroke-width="28" stroke-linecap="round" opacity="0.55">
+    <path d="M300 686h424"/>
+    <path d="M300 770h296"/>
+  </g>
+</svg>
