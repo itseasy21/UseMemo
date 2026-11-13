@@ -1,0 +1,71 @@
+@import "tailwindcss";
+@import "../styles/brand-tokens.css";
+
+@layer base {
+  * {
+    border-color: var(--brand-border-subtle);
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--brand-bg-primary);
+    color: var(--brand-text-primary);
+    font-family: var(--brand-font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--brand-accent-primary) 32%, transparent);
+    color: var(--brand-text-primary);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--brand-accent-primary);
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--brand-border-subtle) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--brand-border-subtle);
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@utility panel {
+  background: var(--brand-bg-elevated);
+  border: 1px solid var(--brand-border-subtle);
+  border-radius: var(--brand-radius);
+}
+
+@utility glass {
+  background: var(--brand-bg-glass);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid var(--brand-border-subtle);
+}
+
+@utility tabular {
+  font-family: var(--brand-font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}

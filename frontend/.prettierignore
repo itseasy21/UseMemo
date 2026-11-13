@@ -1,0 +1,8 @@
+node_modules/
+.next/
+out/
+src-tauri/target/
+src/generated/
+src/styles/brand-tokens.css
+src-tauri/gen/
+pnpm-lock.yaml
