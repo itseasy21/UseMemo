@@ -4,11 +4,15 @@
 //! deterministic parts that can be unit-tested: perceptual deduplication,
 //! file naming, interval policy, the single-session lease, and the scheduler.
 
+pub mod capture;
 pub mod dhash;
 pub mod encode;
 pub mod paths;
 pub mod policy;
 
+pub use capture::{
+    default_backend, CapturedFrame, ScreenCapture, SyntheticScreenCapture, SystemScreenCapture,
+};
 pub use dhash::{
     dhash_file, dhash_rgba, hamming_distance, hash_to_hex, is_near_duplicate, parse_hash,
 };

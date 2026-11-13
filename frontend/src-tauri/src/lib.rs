@@ -1,50 +1,66 @@
 pub mod brand;
+pub mod commands;
 pub mod error;
+pub mod events;
 pub mod export;
 pub mod generated_brand;
 pub mod model_registry;
 pub mod models;
 pub mod screenshot;
+pub mod state;
 pub mod storage;
 pub mod synthesis;
 
-use serde::Serialize;
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BrandConfigResponse {
-    pub brand_id: &'static str,
-    pub product_name: &'static str,
-    pub tagline: &'static str,
-    pub company_name: &'static str,
-    pub bundle_identifier: &'static str,
-    pub deep_link_scheme: &'static str,
-    pub storage_dir_name: &'static str,
-    pub sqlite_file_name: &'static str,
-    pub license_type: &'static str,
-    pub manifest_json: &'static str,
-}
-
-#[tauri::command]
-fn get_brand_config() -> BrandConfigResponse {
-    BrandConfigResponse {
-        brand_id: generated_brand::BRAND_ID,
-        product_name: generated_brand::PRODUCT_NAME,
-        tagline: generated_brand::TAGLINE,
-        company_name: generated_brand::COMPANY_NAME,
-        bundle_identifier: generated_brand::BUNDLE_IDENTIFIER,
-        deep_link_scheme: generated_brand::DEEP_LINK_SCHEME,
-        storage_dir_name: generated_brand::STORAGE_DIR_NAME,
-        sqlite_file_name: generated_brand::SQLITE_FILE_NAME,
-        license_type: generated_brand::LICENSE_TYPE,
-        manifest_json: generated_brand::BRAND_MANIFEST_JSON,
-    }
-}
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_brand_config])
+        .setup(|app| {
+            let (brand, capture, synthesis) = state::production_state_parts()?;
+            let state = tauri::async_runtime::block_on(state::AppState::initialize(
+                brand, capture, synthesis,
+            ))?;
+            app.manage(state);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::brand::get_brand_config,
+            commands::brand::get_brand_manifest,
+            commands::meetings::create_meeting,
+            commands::meetings::list_meetings,
+            commands::meetings::get_meeting,
+            commands::meetings::finish_meeting,
+            commands::meetings::delete_meeting,
+            commands::meetings::set_meeting_starred,
+            commands::meetings::set_screenshot_interval,
+            commands::meetings::start_recording,
+            commands::meetings::stop_recording,
+            commands::meetings::recording_status,
+            commands::notes::save_notes,
+            commands::notes::list_notes,
+            commands::transcript::append_transcript,
+            commands::transcript::list_transcript,
+            commands::transcript::list_speakers,
+            commands::transcript::upsert_speaker,
+            commands::transcript::rename_speaker,
+            commands::screenshots::list_screenshots,
+            commands::screenshots::capture_screenshot,
+            commands::screenshots::update_screenshot_ocr,
+            commands::synthesis::synthesize_meeting,
+            commands::synthesis::list_synthesis,
+            commands::synthesis::update_synthesis_item,
+            commands::synthesis::synthesis_context_preview,
+            commands::synthesis::export_meeting,
+            commands::search::search,
+            commands::search::rebuild_search_index,
+            commands::search::create_folder,
+            commands::search::list_folders,
+            commands::models::list_models,
+            commands::models::probe_hardware,
+            commands::models::download_model,
+            commands::models::delete_model,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Use Memo");
 }
