@@ -9,6 +9,7 @@ import {
   loadManifest,
   renderBrandTokensCss,
   renderBrandTs,
+  renderCapabilities,
   renderGeneratedBrandRs,
   renderTauriConfig,
   validateManifest,
@@ -117,6 +118,14 @@ test("TypeScript and Rust brand outputs are deterministic and embedded", () => {
   assert.match(rs, /pub const DEFAULT_SCREENSHOT_INTERVAL_SEC: u32 = 10;/);
   assert.match(rs, /include_str!\("\.\.\/resources\/brand\.config\.json"\)/);
   assert.match(rs, /\("accentPrimary", "oklch\(0\.48 0\.13 200\)"\)/);
+});
+
+test("capabilities cover both windows and the HUD reveal controls", () => {
+  const capabilities = renderCapabilities(profile);
+  assert.match(capabilities, /"windows": \[[\s\S]*"main"[\s\S]*"hud"[\s\S]*\]/);
+  assert.match(capabilities, /core:window:allow-show/);
+  assert.match(capabilities, /core:window:allow-hide/);
+  assert.match(capabilities, /core:window:allow-set-focus/);
 });
 
 test("codegen emits every required artifact", () => {

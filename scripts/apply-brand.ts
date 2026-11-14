@@ -377,7 +377,12 @@ export function renderCapabilities(manifest: BrandManifest): string {
     identifier: "default",
     description: `Core desktop permissions for ${manifest.productName}`,
     windows: ["main", "hud"],
-    permissions: ["core:default"],
+    permissions: [
+      "core:default",
+      "core:window:allow-show",
+      "core:window:allow-hide",
+      "core:window:allow-set-focus",
+    ],
   });
 }
 
