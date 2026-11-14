@@ -25,6 +25,7 @@ import { PRODUCT_NAME } from "@/generated/brand";
 import { MEETINGS, PENDING_ACTIONS, meetingActionOwner, type Meeting } from "@/lib/demo-data";
 import { formatTimestamp } from "@/lib/format";
 import { SEEK_HANDOFF_PREFIX } from "@/lib/session-keys";
+import { isTauri } from "@/lib/tauri";
 import {
   CATEGORY_META,
   SEARCH_DOCS,
@@ -166,6 +167,7 @@ export function CommandPalette() {
   const toggleTheme = useWorkspaceStore((state) => state.toggleTheme);
   const theme = useWorkspaceStore((state) => state.theme);
 
+  const [native, setNative] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -173,6 +175,8 @@ export function CommandPalette() {
   const previousFocus = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const listId = useId();
+
+  useEffect(() => setNative(isTauri()), []);
 
   useEffect(() => {
     if (!open) return;
@@ -194,8 +198,8 @@ export function CommandPalette() {
     setActiveIndex(0);
   }, [query]);
 
-  const commands = useMemo<PaletteItem[]>(
-    () => [
+  const commands = useMemo<PaletteItem[]>(() => {
+    const items: PaletteItem[] = [
       {
         id: "cmd-record",
         label: "Start Recording",
@@ -205,6 +209,29 @@ export function CommandPalette() {
         onSelect: () => openNewRecording(),
       },
       {
+        id: "cmd-model",
+        label: "Open AI Models",
+        subtitle: "On-device transcription and language models",
+        icon: Cpu,
+        onSelect: () => {
+          closePalette();
+          navigate("/models/");
+        },
+      },
+      {
+        id: "cmd-theme",
+        label: `Switch to ${theme === "dark" ? "Light" : "Dark"} Theme`,
+        subtitle: "Change how the app looks",
+        icon: SunMoon,
+        onSelect: () => {
+          toggleTheme();
+          closePalette();
+        },
+      },
+    ];
+
+    if (!native) {
+      items.splice(1, 0, {
         id: "cmd-snap",
         label: "Take Screenshot",
         subtitle: "Manual snap · dHash dedupe · stored in vault",
@@ -218,18 +245,8 @@ export function CommandPalette() {
             "success",
           );
         },
-      },
-      {
-        id: "cmd-model",
-        label: "Switch LiteRT Model",
-        subtitle: "ASR + SLM provisioning · local artifacts only",
-        icon: Cpu,
-        onSelect: () => {
-          closePalette();
-          navigate("/models/");
-        },
-      },
-      {
+      });
+      items.splice(items.length - 1, 0, {
         id: "cmd-export",
         label: "Export Vault to Markdown",
         subtitle: `${MEETINGS.length} demos · frontmatter + relative assets`,
@@ -243,20 +260,11 @@ export function CommandPalette() {
             "success",
           );
         },
-      },
-      {
-        id: "cmd-theme",
-        label: `Switch to ${theme === "dark" ? "Light" : "Dark"} Theme`,
-        subtitle: "Theme tokens are brand-generated, not hardcoded",
-        icon: SunMoon,
-        onSelect: () => {
-          toggleTheme();
-          closePalette();
-        },
-      },
-    ],
-    [closePalette, openNewRecording, pushToast, theme, toggleTheme],
-  );
+      });
+    }
+
+    return items;
+  }, [closePalette, native, openNewRecording, pushToast, theme, toggleTheme]);
 
   const sections = useMemo<Section[]>(() => {
     const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -267,6 +275,12 @@ export function CommandPalette() {
         return tokens.every((token) => haystack.includes(token));
       })
       .map((command) => ({ ...command, query, category: undefined }));
+
+    if (native) {
+      return [{ id: "commands", label: "Actions", items: matchedCommands }].filter(
+        (section) => section.items.length > 0,
+      );
+    }
 
     if (!query.trim()) {
       const recent = SEARCH_DOCS.filter((doc) => doc.category === "memo").map((doc) =>
@@ -295,7 +309,7 @@ export function CommandPalette() {
         }))
         .filter((section) => section.items.length > 0),
     ];
-  }, [commands, query]);
+  }, [commands, native, query]);
 
   const flatItems = useMemo(() => sections.flatMap((section) => section.items), [sections]);
   const safeIndex = flatItems.length === 0 ? -1 : Math.min(activeIndex, flatItems.length - 1);
@@ -370,7 +384,7 @@ export function CommandPalette() {
         className="glass w-full max-w-[680px] overflow-hidden rounded-[calc(var(--radius-brand)+6px)] shadow-[0_40px_120px_-24px_oklch(0_0_0/0.75)]"
       >
         <h2 id={titleId} className="sr-only">
-          Search the local vault
+          {native ? "Command menu" : "Search the local vault"}
         </h2>
         <div className="flex items-center gap-3 border-b border-border-subtle px-4 py-3">
           <Search className="size-4 shrink-0 text-text-muted" />
@@ -378,8 +392,8 @@ export function CommandPalette() {
             ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search notes, transcripts, slides…"
-            aria-label="Search the local vault"
+            placeholder={native ? "Type a command…" : "Search notes, transcripts, slides…"}
+            aria-label={native ? "Command menu" : "Search the local vault"}
             role="combobox"
             aria-expanded="true"
             aria-controls={listId}
@@ -408,7 +422,7 @@ export function CommandPalette() {
         <div
           id={listId}
           role="listbox"
-          aria-label="Vault search results"
+          aria-label={native ? "Actions" : "Vault search results"}
           className="max-h-[min(58vh,480px)] overflow-y-auto overscroll-contain p-2"
         >
           {flatItems.length === 0 ? (
@@ -416,10 +430,13 @@ export function CommandPalette() {
               <span className="mb-3 flex size-10 items-center justify-center rounded-full border border-border-subtle bg-bg-primary/40 text-text-muted">
                 <ShieldCheck className="size-4" />
               </span>
-              <p className="text-sm font-medium text-text-primary">No local matches</p>
+              <p className="text-sm font-medium text-text-primary">
+                {native ? "No matching actions" : "No local matches"}
+              </p>
               <p className="mt-1 max-w-sm text-xs leading-5 text-text-muted">
-                The FTS5 index searched {SEARCH_DOCS.length} demo passages. Nothing left the
-                machine.
+                {native
+                  ? "Try a different command."
+                  : `The FTS5 index searched ${SEARCH_DOCS.length} demo passages. Nothing left the machine.`}
               </p>
             </div>
           ) : (
@@ -510,9 +527,13 @@ export function CommandPalette() {
           </div>
           <div className="flex items-center gap-1.5 text-[9.5px] text-text-muted">
             <span className="size-1.5 rounded-full bg-accent-primary" />
-            SQLite FTS5
-            <span className="text-border-subtle">·</span>
-            {SEARCH_DOCS.length + PENDING_ACTIONS.length} rows
+            {native ? "Local actions" : "SQLite FTS5"}
+            {!native && (
+              <>
+                <span className="text-border-subtle">·</span>
+                {SEARCH_DOCS.length + PENDING_ACTIONS.length} rows
+              </>
+            )}
             <span className="text-border-subtle">·</span>
             offline
           </div>

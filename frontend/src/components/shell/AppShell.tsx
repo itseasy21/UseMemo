@@ -32,7 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <button
               type="button"
               onClick={openPalette}
-              aria-label="Search vault"
+              aria-label="Open command menu"
               className="flex size-8 items-center justify-center rounded-brand text-text-muted hover:bg-bg-elevated"
             >
               <Search className="size-4" />

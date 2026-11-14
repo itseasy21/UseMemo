@@ -120,22 +120,22 @@ export function LocalRecordings() {
     <section
       id="local-recordings"
       aria-labelledby="recordings-heading"
-      className="panel mt-5 scroll-mt-8 overflow-hidden"
+      className="panel mt-8 scroll-mt-8 overflow-hidden"
     >
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-5 py-4">
         <div>
           <h2
             id="recordings-heading"
-            className="text-[16px] font-semibold tracking-[-0.015em] text-text-primary"
+            className="text-[18px] font-semibold tracking-[-0.02em] text-text-primary"
           >
-            Saved on this Mac
+            Recent recordings
           </h2>
-          <p className="mt-0.5 text-[12px] text-text-muted">
+          <p className="mt-1 text-[12px] text-text-muted">
             {meetings === null
               ? "Looking for recordings…"
               : meetings.length === 0
                 ? "Your recordings will appear here."
-                : `${meetings.length} ${meetings.length === 1 ? "recording" : "recordings"} · audio and notes stay on this device`}
+                : `${meetings.length} ${meetings.length === 1 ? "recording" : "recordings"} on this Mac`}
           </p>
         </div>
         <Pill tone="accent" className="text-[11px]" icon={<ShieldCheck className="size-3" />}>
@@ -148,11 +148,9 @@ export function LocalRecordings() {
           <span className="flex size-12 items-center justify-center rounded-full border border-accent-primary/20 bg-accent-primary/[0.06] text-accent-primary">
             <Mic className="size-5" />
           </span>
-          <p className="mt-3 text-[14px] font-medium text-text-primary">
-            No recordings on this Mac yet
-          </p>
+          <p className="mt-3 text-[14px] font-medium text-text-primary">No recordings yet</p>
           <p className="mt-1 max-w-[420px] text-[12.5px] leading-5 text-text-muted">
-            When you finish a recording, it will appear here. You can read the transcript or
+            Start a recording above and it will appear here. You can read the transcript or
             transcribe it whenever you&apos;re ready.
           </p>
         </div>
@@ -210,7 +208,7 @@ export function LocalRecordings() {
             {selected ? (
               <>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="min-w-0 truncate text-[14.5px] font-semibold text-text-primary">
+                  <h3 className="min-w-0 truncate text-[16px] font-semibold tracking-[-0.015em] text-text-primary">
                     {selected.title}
                   </h3>
                   <span className="text-[11.5px] text-text-muted">
@@ -251,10 +249,10 @@ export function LocalRecordings() {
 
                 <div className="mt-3 max-h-[240px] overflow-y-auto rounded-brand border border-border-subtle/70 bg-bg-primary/25 px-3 py-2.5">
                   {segments === null ? (
-                    <p className="py-2 text-[12px] text-text-muted">Reading transcript…</p>
+                    <p className="py-2 text-[12px] text-text-muted">Loading transcript…</p>
                   ) : segments.length === 0 ? (
                     <p className="py-2 text-[12.5px] leading-5 text-text-muted">
-                      No transcript yet. Install an AI model in AI models, then transcribe this
+                      No transcript yet. Open AI models to install one, then transcribe this
                       recording.
                     </p>
                   ) : (
