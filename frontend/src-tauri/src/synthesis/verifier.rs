@@ -21,7 +21,8 @@ pub fn verify(raw: RawSynthesis, index: &EvidenceIndex) -> VerifiedSynthesis {
         let mut sort_order = 0i64;
         for item in raw_items {
             report.raw_items += 1;
-            let Some(verified) = verify_item(item_type, item, sort_order, index, &mut report) else {
+            let Some(verified) = verify_item(item_type, item, sort_order, index, &mut report)
+            else {
                 report.dropped_without_valid_evidence += 1;
                 continue;
             };
@@ -92,7 +93,11 @@ fn ground_owner(
     index: &EvidenceIndex,
     report: &mut VerificationReport,
 ) -> String {
-    let candidate = raw_owner.unwrap_or_default().trim().trim_start_matches('@').trim();
+    let candidate = raw_owner
+        .unwrap_or_default()
+        .trim()
+        .trim_start_matches('@')
+        .trim();
     if candidate.is_empty() || candidate.eq_ignore_ascii_case(OWNER_UNASSIGNED) {
         return OWNER_UNASSIGNED.to_string();
     }
@@ -115,7 +120,11 @@ fn ground_deadline(
     index: &EvidenceIndex,
     report: &mut VerificationReport,
 ) -> String {
-    let candidate = raw_deadline.unwrap_or_default().trim().trim_matches(['[', ']']).trim();
+    let candidate = raw_deadline
+        .unwrap_or_default()
+        .trim()
+        .trim_matches(['[', ']'])
+        .trim();
     if candidate.is_empty() || candidate.eq_ignore_ascii_case(DEADLINE_UNSPECIFIED) {
         return DEADLINE_UNSPECIFIED.to_string();
     }
@@ -128,7 +137,11 @@ fn ground_deadline(
     let tokens: Vec<String> = candidate
         .to_lowercase()
         .split_whitespace()
-        .map(|token| token.trim_matches(|c: char| c.is_ascii_punctuation()).to_string())
+        .map(|token| {
+            token
+                .trim_matches(|c: char| c.is_ascii_punctuation())
+                .to_string()
+        })
         .filter(|token| !token.is_empty())
         .collect();
 
@@ -182,7 +195,8 @@ mod tests {
                 meeting_id: "m".into(),
                 line_index: 2,
                 block_type: "decision".into(),
-                content_md: "DECISION: Use PostgreSQL instead of MongoDB for billing service.".into(),
+                content_md: "DECISION: Use PostgreSQL instead of MongoDB for billing service."
+                    .into(),
                 recording_offset_ms: Some(252_000),
                 linked_screenshot_id: None,
             },
@@ -197,7 +211,9 @@ mod tests {
                 speaker_id: None,
                 speaker_label: "Sarah".into(),
                 audio_channel: "system".into(),
-                text: "We need to push the Q3 launch date to October 15th to finish security testing.".into(),
+                text:
+                    "We need to push the Q3 launch date to October 15th to finish security testing."
+                        .into(),
                 is_confirmed: true,
             },
             TranscriptSegment {
@@ -221,7 +237,8 @@ mod tests {
                 speaker_id: None,
                 speaker_label: "Alex".into(),
                 audio_channel: "system".into(),
-                text: "I'll send over the updated AWS cost spreadsheet by Wednesday afternoon.".into(),
+                text: "I'll send over the updated AWS cost spreadsheet by Wednesday afternoon."
+                    .into(),
                 is_confirmed: true,
             },
         ];
@@ -245,7 +262,12 @@ mod tests {
         let raw = RawSynthesis {
             summary: vec![],
             decisions: vec![],
-            action_items: vec![action("Send the revised AWS cost sheet.", "Bob", "Next Friday", &["T-09:20"])],
+            action_items: vec![action(
+                "Send the revised AWS cost sheet.",
+                "Bob",
+                "Next Friday",
+                &["T-09:20"],
+            )],
         };
         let verified = verify(raw, &index());
         assert_eq!(verified.items.len(), 1);
@@ -264,7 +286,10 @@ mod tests {
                 "Q3 launch moved to October 15th to finish security testing.",
                 &["T-00:40"],
             )],
-            decisions: vec![item("Use PostgreSQL for the billing service.", &["N-L2", "S-04:10"])],
+            decisions: vec![item(
+                "Use PostgreSQL for the billing service.",
+                &["N-L2", "S-04:10"],
+            )],
             action_items: vec![action(
                 "Send the revised AWS cost sheet.",
                 "Alex",
@@ -286,7 +311,10 @@ mod tests {
     fn items_without_any_real_evidence_are_discarded() {
         let raw = RawSynthesis {
             summary: vec![item("Invented fact", &["T-99:99"]), item("", &["T-00:40"])],
-            decisions: vec![RawItem { content: "No refs at all".into(), ..Default::default() }],
+            decisions: vec![RawItem {
+                content: "No refs at all".into(),
+                ..Default::default()
+            }],
             action_items: vec![action("Ghost task", "Alex", "Wednesday", &["FAKE-1"])],
         };
         let verified = verify(raw, &index());
@@ -319,7 +347,10 @@ mod tests {
             ..Default::default()
         };
         let verified = verify(raw, &index());
-        assert_eq!(verified.items[0].deadline.as_deref(), Some("Wednesday afternoon"));
+        assert_eq!(
+            verified.items[0].deadline.as_deref(),
+            Some("Wednesday afternoon")
+        );
         assert_eq!(verified.report.forced_unspecified_deadlines, 0);
     }
 
@@ -331,7 +362,10 @@ mod tests {
         };
         let verified = verify(raw, &index());
         assert_eq!(verified.items[0].owner.as_deref(), Some(OWNER_UNASSIGNED));
-        assert_eq!(verified.items[0].deadline.as_deref(), Some(DEADLINE_UNSPECIFIED));
+        assert_eq!(
+            verified.items[0].deadline.as_deref(),
+            Some(DEADLINE_UNSPECIFIED)
+        );
     }
 
     #[test]
@@ -345,7 +379,10 @@ mod tests {
         };
         let verified = verify(raw, &index());
         assert_eq!(verified.items[0].owner.as_deref(), Some(OWNER_UNASSIGNED));
-        assert_eq!(verified.items[0].deadline.as_deref(), Some(DEADLINE_UNSPECIFIED));
+        assert_eq!(
+            verified.items[0].deadline.as_deref(),
+            Some(DEADLINE_UNSPECIFIED)
+        );
         assert_eq!(verified.items[1].owner.as_deref(), Some("Alex"));
         assert_eq!(verified.report.forced_unassigned_owners, 0);
         assert_eq!(verified.report.forced_unspecified_deadlines, 0);

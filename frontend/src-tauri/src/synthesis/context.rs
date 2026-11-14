@@ -23,7 +23,10 @@ pub fn build_context(
     out.push_str("=== MEETING ===\n");
     out.push_str(&format!("Title: {}\n", sanitize(&meeting.title)));
     out.push_str(&format!("Status: {}\n", meeting.status));
-    out.push_str(&format!("Duration: {}s\n\n", meeting.duration_ms.max(0) / 1000));
+    out.push_str(&format!(
+        "Duration: {}s\n\n",
+        meeting.duration_ms.max(0) / 1000
+    ));
 
     out.push_str("=== USER MANUAL NOTES (HIGHEST PRIORITY) ===\n");
     if notes.is_empty() {
@@ -34,9 +37,12 @@ pub fn build_context(
         for note in &ordered {
             let id = note_evidence_id(note.line_index);
             match note.recording_offset_ms {
-                Some(offset) => {
-                    out.push_str(&format!("[{} @ {}] {}\n", id, format_timestamp(offset), sanitize(&note.content_md)))
-                }
+                Some(offset) => out.push_str(&format!(
+                    "[{} @ {}] {}\n",
+                    id,
+                    format_timestamp(offset),
+                    sanitize(&note.content_md)
+                )),
                 None => out.push_str(&format!("[{}] {}\n", id, sanitize(&note.content_md))),
             }
         }
@@ -45,7 +51,12 @@ pub fn build_context(
 
     let visual: Vec<&Screenshot> = screenshots
         .iter()
-        .filter(|shot| shot.ocr_extracted_text.as_deref().map(str::trim).is_some_and(|text| !text.is_empty()))
+        .filter(|shot| {
+            shot.ocr_extracted_text
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|text| !text.is_empty())
+        })
         .collect();
     if !visual.is_empty() {
         out.push_str("=== VISUAL SLIDE CAPTURES ===\n");
@@ -154,13 +165,39 @@ mod tests {
     #[test]
     fn context_contains_exact_indexed_sections() {
         let notes = vec![
-            note(1, Some(45_000), "Client wants Q3 launch moved to October 15."),
-            note(2, Some(252_000), "DECISION: Use PostgreSQL instead of MongoDB for billing service."),
+            note(
+                1,
+                Some(45_000),
+                "Client wants Q3 launch moved to October 15.",
+            ),
+            note(
+                2,
+                Some(252_000),
+                "DECISION: Use PostgreSQL instead of MongoDB for billing service.",
+            ),
         ];
         let transcript = vec![
-            segment(1, 40_000, 52_000, "Sarah", "We need to push the Q3 launch date to October 15th."),
-            segment(2, 245_000, 265_000, "You", "Agreed, let's lock in PostgreSQL."),
-            segment(3, 560_000, 578_000, "Alex", "I'll send the AWS cost sheet by Wednesday."),
+            segment(
+                1,
+                40_000,
+                52_000,
+                "Sarah",
+                "We need to push the Q3 launch date to October 15th.",
+            ),
+            segment(
+                2,
+                245_000,
+                265_000,
+                "You",
+                "Agreed, let's lock in PostgreSQL.",
+            ),
+            segment(
+                3,
+                560_000,
+                578_000,
+                "Alex",
+                "I'll send the AWS cost sheet by Wednesday.",
+            ),
         ];
         let screenshots = vec![Screenshot {
             id: "s1".into(),
@@ -176,8 +213,12 @@ mod tests {
         }];
         let context = build_context(&meeting(), &notes, &transcript, &screenshots, &[]);
 
-        assert!(context.text.contains("=== USER MANUAL NOTES (HIGHEST PRIORITY) ==="));
-        assert!(context.text.contains("[N-L1 @ 00:45] Client wants Q3 launch moved to October 15."));
+        assert!(context
+            .text
+            .contains("=== USER MANUAL NOTES (HIGHEST PRIORITY) ==="));
+        assert!(context
+            .text
+            .contains("[N-L1 @ 00:45] Client wants Q3 launch moved to October 15."));
         assert!(context.text.contains("[N-L2 @ 04:12]"));
         assert!(context.text.contains("=== VISUAL SLIDE CAPTURES ==="));
         assert!(context.text.contains("[S-04:10] Billing Architecture v2"));

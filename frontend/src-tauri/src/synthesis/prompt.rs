@@ -50,8 +50,8 @@ pub fn build_request(brand: &Brand, context: &SynthesisContext) -> SynthesisRequ
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::synthesis::context::build_context;
     use crate::storage::Meeting;
+    use crate::synthesis::context::build_context;
 
     #[test]
     fn prompt_embeds_brand_name_and_all_three_id_patterns() {
@@ -88,6 +88,8 @@ mod tests {
         assert_eq!(request.temperature, 0.0);
         assert_eq!(request.top_p, 1.0);
         assert_eq!(request.top_k, 1);
-        assert!(request.user.contains("=== USER MANUAL NOTES (HIGHEST PRIORITY) ==="));
+        assert!(request
+            .user
+            .contains("=== USER MANUAL NOTES (HIGHEST PRIORITY) ==="));
     }
 }

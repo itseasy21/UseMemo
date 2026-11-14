@@ -94,8 +94,14 @@ mod tests {
         let brand = Brand::embedded().unwrap();
         let verified = synthesize(&brand, &context(), &engine).await.unwrap();
         assert_eq!(verified.summary().len(), 1);
-        assert_eq!(verified.action_items()[0].owner.as_deref(), Some("Unassigned"));
-        assert_eq!(verified.action_items()[0].deadline.as_deref(), Some("Not specified"));
+        assert_eq!(
+            verified.action_items()[0].owner.as_deref(),
+            Some("Unassigned")
+        );
+        assert_eq!(
+            verified.action_items()[0].deadline.as_deref(),
+            Some("Not specified")
+        );
     }
 
     #[tokio::test]

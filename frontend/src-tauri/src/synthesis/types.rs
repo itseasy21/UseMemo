@@ -26,7 +26,12 @@ pub struct RawItem {
     pub content: String,
     #[serde(default)]
     pub rationale: Option<String>,
-    #[serde(default, alias = "evidenceIds", alias = "evidence_ids", alias = "evidence_refs")]
+    #[serde(
+        default,
+        alias = "evidenceIds",
+        alias = "evidence_ids",
+        alias = "evidence_refs"
+    )]
     pub evidence_ids: Vec<String>,
     #[serde(default)]
     pub owner: Option<String>,
@@ -58,15 +63,24 @@ pub struct VerifiedSynthesis {
 
 impl VerifiedSynthesis {
     pub fn summary(&self) -> Vec<&SynthesisItemDraft> {
-        self.items.iter().filter(|item| item.item_type == ITEM_SUMMARY).collect()
+        self.items
+            .iter()
+            .filter(|item| item.item_type == ITEM_SUMMARY)
+            .collect()
     }
 
     pub fn decisions(&self) -> Vec<&SynthesisItemDraft> {
-        self.items.iter().filter(|item| item.item_type == ITEM_DECISION).collect()
+        self.items
+            .iter()
+            .filter(|item| item.item_type == ITEM_DECISION)
+            .collect()
     }
 
     pub fn action_items(&self) -> Vec<&SynthesisItemDraft> {
-        self.items.iter().filter(|item| item.item_type == ITEM_ACTION).collect()
+        self.items
+            .iter()
+            .filter(|item| item.item_type == ITEM_ACTION)
+            .collect()
     }
 }
 

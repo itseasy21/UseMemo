@@ -210,7 +210,10 @@ impl Database {
             .foreign_keys(true)
             .journal_mode(SqliteJournalMode::Wal)
             .busy_timeout(Duration::from_secs(5));
-        let pool = SqlitePoolOptions::new().max_connections(5).connect_with(options).await?;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect_with(options)
+            .await?;
         let database = Self { pool };
         database.migrate().await?;
         Ok(database)
@@ -221,7 +224,10 @@ impl Database {
             .filename(":memory:")
             .create_if_missing(true)
             .foreign_keys(true);
-        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await?;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await?;
         let database = Self { pool };
         database.migrate().await?;
         Ok(database)
@@ -243,17 +249,19 @@ impl Database {
             .title
             .map(|title| title.trim().to_string())
             .filter(|title| !title.is_empty())
-            .unwrap_or_else(|| {
-                format!("Memo {}", chrono::Local::now().format("%b %-d, %H:%M"))
-            });
+            .unwrap_or_else(|| format!("Memo {}", chrono::Local::now().format("%b %-d, %H:%M")));
         let interval = input.screenshot_interval_sec.unwrap_or(10);
         if interval != 0 && !(5..=3600).contains(&interval) {
             return Err(AppError::Invalid(
                 "screenshotIntervalSec must be 0 (manual) or between 5 and 3600".into(),
             ));
         }
-        let asr_model_id = input.asr_model_id.unwrap_or_else(|| "parakeet-tdt-0.6b-v3".into());
-        let slm_model_id = input.slm_model_id.unwrap_or_else(|| "gemma-4-e2b-it".into());
+        let asr_model_id = input
+            .asr_model_id
+            .unwrap_or_else(|| "parakeet-tdt-0.6b-v3".into());
+        let slm_model_id = input
+            .slm_model_id
+            .unwrap_or_else(|| "gemma-4-e2b-it".into());
 
         sqlx::query(
             r#"
@@ -286,14 +294,18 @@ impl Database {
     }
 
     pub async fn list_meetings(&self) -> AppResult<Vec<Meeting>> {
-        Ok(sqlx::query_as::<_, Meeting>("SELECT * FROM meetings ORDER BY created_at DESC")
-            .fetch_all(&self.pool)
-            .await?)
+        Ok(
+            sqlx::query_as::<_, Meeting>("SELECT * FROM meetings ORDER BY created_at DESC")
+                .fetch_all(&self.pool)
+                .await?,
+        )
     }
 
     pub async fn set_meeting_status(&self, id: &str, status: &str) -> AppResult<()> {
         if ![STATUS_RECORDING, STATUS_PROCESSING, STATUS_COMPLETED].contains(&status) {
-            return Err(AppError::Invalid(format!("unknown meeting status: {status}")));
+            return Err(AppError::Invalid(format!(
+                "unknown meeting status: {status}"
+            )));
         }
         let updated = Utc::now().timestamp_millis();
         let result = sqlx::query("UPDATE meetings SET status = ?1, updated_at = ?2 WHERE id = ?3")
@@ -351,12 +363,14 @@ impl Database {
                 "screenshotIntervalSec must be 0 (manual) or between 5 and 3600".into(),
             ));
         }
-        sqlx::query("UPDATE meetings SET screenshot_interval_sec = ?1, updated_at = ?2 WHERE id = ?3")
-            .bind(interval_sec)
-            .bind(Utc::now().timestamp_millis())
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE meetings SET screenshot_interval_sec = ?1, updated_at = ?2 WHERE id = ?3",
+        )
+        .bind(interval_sec)
+        .bind(Utc::now().timestamp_millis())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -378,8 +392,13 @@ impl Database {
                     block.line_index
                 )));
             }
-            if !["paragraph", "decision", "todo", "heading", "bookmark"].contains(&block.block_type.as_str()) {
-                return Err(AppError::Invalid(format!("unknown note blockType {}", block.block_type)));
+            if !["paragraph", "decision", "todo", "heading", "bookmark"]
+                .contains(&block.block_type.as_str())
+            {
+                return Err(AppError::Invalid(format!(
+                    "unknown note blockType {}",
+                    block.block_type
+                )));
             }
         }
 
@@ -432,7 +451,9 @@ impl Database {
     ) -> AppResult<TranscriptSegment> {
         self.get_meeting(meeting_id).await?;
         if !["mic", "system"].contains(&segment.audio_channel.as_str()) {
-            return Err(AppError::Invalid("audioChannel must be 'mic' or 'system'".into()));
+            return Err(AppError::Invalid(
+                "audioChannel must be 'mic' or 'system'".into(),
+            ));
         }
         let id = Uuid::now_v7().to_string();
         sqlx::query(
@@ -472,9 +493,11 @@ impl Database {
     }
 
     pub async fn list_speakers(&self) -> AppResult<Vec<Speaker>> {
-        Ok(sqlx::query_as::<_, Speaker>("SELECT * FROM speakers ORDER BY display_name COLLATE NOCASE")
-            .fetch_all(&self.pool)
-            .await?)
+        Ok(sqlx::query_as::<_, Speaker>(
+            "SELECT * FROM speakers ORDER BY display_name COLLATE NOCASE",
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     pub async fn upsert_speaker(
@@ -486,11 +509,12 @@ impl Database {
         if name.is_empty() {
             return Err(AppError::Invalid("speaker display name is empty".into()));
         }
-        if let Some(existing) =
-            sqlx::query_as::<_, Speaker>("SELECT * FROM speakers WHERE display_name = ?1 COLLATE NOCASE")
-                .bind(name)
-                .fetch_optional(&self.pool)
-                .await?
+        if let Some(existing) = sqlx::query_as::<_, Speaker>(
+            "SELECT * FROM speakers WHERE display_name = ?1 COLLATE NOCASE",
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?
         {
             return Ok(existing);
         }
@@ -507,10 +531,12 @@ impl Database {
         .bind(Utc::now().timestamp_millis())
         .execute(&self.pool)
         .await?;
-        Ok(sqlx::query_as::<_, Speaker>("SELECT * FROM speakers WHERE id = ?1")
-            .bind(&id)
-            .fetch_one(&self.pool)
-            .await?)
+        Ok(
+            sqlx::query_as::<_, Speaker>("SELECT * FROM speakers WHERE id = ?1")
+                .bind(&id)
+                .fetch_one(&self.pool)
+                .await?,
+        )
     }
 
     pub async fn rename_speaker(
@@ -548,7 +574,9 @@ impl Database {
     ) -> AppResult<Screenshot> {
         self.get_meeting(meeting_id).await?;
         if !["interval", "manual"].contains(&shot.capture_trigger.as_str()) {
-            return Err(AppError::Invalid("captureTrigger must be 'interval' or 'manual'".into()));
+            return Err(AppError::Invalid(
+                "captureTrigger must be 'interval' or 'manual'".into(),
+            ));
         }
         let id = Uuid::now_v7().to_string();
         sqlx::query(
@@ -687,10 +715,12 @@ impl Database {
         if result.rows_affected() == 0 {
             return Err(AppError::not_found(format!("synthesis item {item_id}")));
         }
-        Ok(sqlx::query_as::<_, SynthesisItem>("SELECT * FROM synthesis_items WHERE id = ?1")
-            .bind(item_id)
-            .fetch_one(&self.pool)
-            .await?)
+        Ok(
+            sqlx::query_as::<_, SynthesisItem>("SELECT * FROM synthesis_items WHERE id = ?1")
+                .bind(item_id)
+                .fetch_one(&self.pool)
+                .await?,
+        )
     }
 
     pub async fn create_folder(&self, name: &str, parent_id: Option<&str>) -> AppResult<Folder> {
@@ -704,25 +734,31 @@ impl Database {
             parent_id: parent_id.map(ToOwned::to_owned),
             created_at: Utc::now().timestamp_millis(),
         };
-        sqlx::query("INSERT INTO folders (id, name, parent_id, created_at) VALUES (?1, ?2, ?3, ?4)")
-            .bind(&folder.id)
-            .bind(&folder.name)
-            .bind(&folder.parent_id)
-            .bind(folder.created_at)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "INSERT INTO folders (id, name, parent_id, created_at) VALUES (?1, ?2, ?3, ?4)",
+        )
+        .bind(&folder.id)
+        .bind(&folder.name)
+        .bind(&folder.parent_id)
+        .bind(folder.created_at)
+        .execute(&self.pool)
+        .await?;
         Ok(folder)
     }
 
     pub async fn list_folders(&self) -> AppResult<Vec<Folder>> {
-        Ok(
-            sqlx::query_as::<_, Folder>("SELECT id, name, parent_id, created_at FROM folders ORDER BY name COLLATE NOCASE")
-                .fetch_all(&self.pool)
-                .await?,
+        Ok(sqlx::query_as::<_, Folder>(
+            "SELECT id, name, parent_id, created_at FROM folders ORDER BY name COLLATE NOCASE",
         )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
-    pub async fn search(&self, raw_query: &str, filters: SearchFilters) -> AppResult<Vec<SearchHit>> {
+    pub async fn search(
+        &self,
+        raw_query: &str,
+        filters: SearchFilters,
+    ) -> AppResult<Vec<SearchHit>> {
         let Some(fts_query) = build_fts_query(raw_query) else {
             return Ok(Vec::new());
         };
@@ -762,7 +798,10 @@ impl Database {
             rank: f64,
         }
 
-        let rows = builder.build_query_as::<SearchRow>().fetch_all(&self.pool).await?;
+        let rows = builder
+            .build_query_as::<SearchRow>()
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows
             .into_iter()
             .map(|row| {
@@ -776,17 +815,29 @@ impl Database {
                     .iter()
                     .flatten()
                     .find(|candidate| candidate.contains("<mark>"))
-                    .or_else(|| candidates.iter().flatten().find(|candidate| !candidate.is_empty()))
+                    .or_else(|| {
+                        candidates
+                            .iter()
+                            .flatten()
+                            .find(|candidate| !candidate.is_empty())
+                    })
                     .cloned()
                     .unwrap_or_default();
-                SearchHit { meeting_id: row.meeting_id, title: row.title, snippet, rank: row.rank }
+                SearchHit {
+                    meeting_id: row.meeting_id,
+                    title: row.title,
+                    snippet,
+                    rank: row.rank,
+                }
             })
             .collect())
     }
 
     pub async fn rebuild_search_index(&self) -> AppResult<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM meetings_search_fts").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM meetings_search_fts")
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
             r#"
             INSERT INTO meetings_search_fts
@@ -838,7 +889,9 @@ fn speaker_color(name: &str) -> String {
     const PALETTE: &[&str] = &[
         "#34d3a0", "#6aa8f8", "#f5a524", "#f06a8a", "#b083f0", "#58c7d8", "#e0c15a", "#8bc34a",
     ];
-    let hash = name.bytes().fold(0u64, |acc, byte| acc.wrapping_mul(131).wrapping_add(byte as u64));
+    let hash = name.bytes().fold(0u64, |acc, byte| {
+        acc.wrapping_mul(131).wrapping_add(byte as u64)
+    });
     PALETTE[(hash as usize) % PALETTE.len()].to_string()
 }
 
@@ -880,7 +933,10 @@ mod tests {
             "synthesis_items",
             "meetings_search_fts",
         ] {
-            assert!(names.iter().any(|name| name == expected), "missing table {expected}");
+            assert!(
+                names.iter().any(|name| name == expected),
+                "missing table {expected}"
+            );
         }
     }
 
@@ -945,7 +1001,10 @@ mod tests {
         db.save_note_blocks(
             &meeting.id,
             "DECISION: Use PostgreSQL instead of MongoDB for billing.",
-            vec![note(1, "DECISION: Use PostgreSQL instead of MongoDB for billing.")],
+            vec![note(
+                1,
+                "DECISION: Use PostgreSQL instead of MongoDB for billing.",
+            )],
         )
         .await
         .unwrap();
@@ -998,43 +1057,76 @@ mod tests {
         .await
         .unwrap();
 
-        let hits = db.search("PostgreSQL", SearchFilters::default()).await.unwrap();
+        let hits = db
+            .search("PostgreSQL", SearchFilters::default())
+            .await
+            .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].meeting_id, meeting.id);
-        assert!(hits[0].snippet.contains("<mark>PostgreSQL</mark>"), "{}", hits[0].snippet);
+        assert!(
+            hits[0].snippet.contains("<mark>PostgreSQL</mark>"),
+            "{}",
+            hits[0].snippet
+        );
         assert!(hits[0].rank.is_finite());
 
-        let no_hits = db.search("MongoDB", SearchFilters { meeting_id: Some("nope".into()), ..Default::default() }).await.unwrap();
+        let no_hits = db
+            .search(
+                "MongoDB",
+                SearchFilters {
+                    meeting_id: Some("nope".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         assert!(no_hits.is_empty());
     }
 
     #[tokio::test]
     async fn fts_queries_are_sanitized() {
         let db = db().await;
-        db.create_meeting(CreateMeetingInput::default()).await.unwrap();
+        db.create_meeting(CreateMeetingInput::default())
+            .await
+            .unwrap();
         for query in ["\"", "*", "OR", "NEAR(", "a\"b", "🙂"] {
             let result = db.search(query, SearchFilters::default()).await;
             assert!(result.is_ok(), "query {query:?} failed: {result:?}");
         }
         assert!(build_fts_query("   ").is_none());
-        assert_eq!(build_fts_query("hello world").unwrap(), "\"hello\"* AND \"world\"*");
+        assert_eq!(
+            build_fts_query("hello world").unwrap(),
+            "\"hello\"* AND \"world\"*"
+        );
     }
 
     #[tokio::test]
     async fn cascading_delete_removes_children_and_search_rows() {
         let db = db().await;
-        let meeting = db.create_meeting(CreateMeetingInput::default()).await.unwrap();
-        db.save_note_blocks(&meeting.id, "secret", vec![note(1, "secret")]).await.unwrap();
+        let meeting = db
+            .create_meeting(CreateMeetingInput::default())
+            .await
+            .unwrap();
+        db.save_note_blocks(&meeting.id, "secret", vec![note(1, "secret")])
+            .await
+            .unwrap();
         db.delete_meeting(&meeting.id).await.unwrap();
         assert!(db.get_meeting(&meeting.id).await.is_err());
         assert!(db.list_note_blocks(&meeting.id).await.unwrap().is_empty());
-        assert!(db.search("secret", SearchFilters::default()).await.unwrap().is_empty());
+        assert!(db
+            .search("secret", SearchFilters::default())
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
     async fn speaker_rename_updates_transcript_and_search() {
         let db = db().await;
-        let meeting = db.create_meeting(CreateMeetingInput::default()).await.unwrap();
+        let meeting = db
+            .create_meeting(CreateMeetingInput::default())
+            .await
+            .unwrap();
         let segment = db
             .insert_transcript_segment(
                 &meeting.id,
@@ -1050,7 +1142,10 @@ mod tests {
             )
             .await
             .unwrap();
-        let speaker = db.rename_speaker(&meeting.id, "Speaker 1", "Alex", false).await.unwrap();
+        let speaker = db
+            .rename_speaker(&meeting.id, "Speaker 1", "Alex", false)
+            .await
+            .unwrap();
         assert_eq!(speaker.display_name, "Alex");
         let transcript = db.list_transcript(&meeting.id).await.unwrap();
         assert_eq!(transcript[0].speaker_label, "Alex");
@@ -1062,7 +1157,10 @@ mod tests {
     #[tokio::test]
     async fn synthesis_items_roundtrip_and_user_edits_are_flagged() {
         let db = db().await;
-        let meeting = db.create_meeting(CreateMeetingInput::default()).await.unwrap();
+        let meeting = db
+            .create_meeting(CreateMeetingInput::default())
+            .await
+            .unwrap();
         let items = db
             .replace_synthesis_items(
                 &meeting.id,
@@ -1094,13 +1192,19 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(items.len(), 2);
-        let action = items.iter().find(|item| item.item_type == "action_item").unwrap();
+        let action = items
+            .iter()
+            .find(|item| item.item_type == "action_item")
+            .unwrap();
         assert_eq!(action.evidence_refs(), vec!["T-09:20"]);
 
         let updated = db
             .update_synthesis_item(
                 &action.id,
-                SynthesisItemPatch { is_completed: Some(true), ..Default::default() },
+                SynthesisItemPatch {
+                    is_completed: Some(true),
+                    ..Default::default()
+                },
             )
             .await
             .unwrap();
@@ -1111,7 +1215,10 @@ mod tests {
     #[tokio::test]
     async fn screenshot_ocr_update_refreshes_search() {
         let db = db().await;
-        let meeting = db.create_meeting(CreateMeetingInput::default()).await.unwrap();
+        let meeting = db
+            .create_meeting(CreateMeetingInput::default())
+            .await
+            .unwrap();
         let shot = db
             .insert_screenshot(
                 &meeting.id,
@@ -1128,8 +1235,13 @@ mod tests {
             )
             .await
             .unwrap();
-        db.update_screenshot_ocr(&shot.id, "Roadmap: FedRAMP certification").await.unwrap();
-        let hits = db.search("FedRAMP", SearchFilters::default()).await.unwrap();
+        db.update_screenshot_ocr(&shot.id, "Roadmap: FedRAMP certification")
+            .await
+            .unwrap();
+        let hits = db
+            .search("FedRAMP", SearchFilters::default())
+            .await
+            .unwrap();
         assert_eq!(hits.len(), 1);
     }
 }

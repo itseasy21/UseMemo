@@ -8,22 +8,28 @@ const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 /// but still requires one complete JSON object.
 pub fn parse_synthesis(raw: &str) -> AppResult<RawSynthesis> {
     if raw.len() > MAX_RESPONSE_BYTES {
-        return Err(AppError::Synthesis("model response is unexpectedly large".into()));
+        return Err(AppError::Synthesis(
+            "model response is unexpectedly large".into(),
+        ));
     }
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(AppError::Synthesis("model returned an empty response".into()));
+        return Err(AppError::Synthesis(
+            "model returned an empty response".into(),
+        ));
     }
 
     let without_fences = strip_code_fences(trimmed);
     let start = without_fences
         .find('{')
         .ok_or_else(|| AppError::Synthesis("model response contains no JSON object".into()))?;
-    let end = without_fences
-        .rfind('}')
-        .ok_or_else(|| AppError::Synthesis("model response contains no complete JSON object".into()))?;
+    let end = without_fences.rfind('}').ok_or_else(|| {
+        AppError::Synthesis("model response contains no complete JSON object".into())
+    })?;
     if end <= start {
-        return Err(AppError::Synthesis("model response JSON boundaries are invalid".into()));
+        return Err(AppError::Synthesis(
+            "model response JSON boundaries are invalid".into(),
+        ));
     }
 
     let json = &without_fences[start..=end];

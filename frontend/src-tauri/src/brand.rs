@@ -123,10 +123,12 @@ pub struct BrandPaths {
 
 impl BrandPaths {
     pub fn for_manifest(manifest: &BrandManifest) -> AppResult<Self> {
-        let data_root = dirs::data_dir()
-            .ok_or_else(|| AppError::Invalid("OS application data directory is unavailable".into()))?;
-        let cache_root = dirs::cache_dir()
-            .ok_or_else(|| AppError::Invalid("OS application cache directory is unavailable".into()))?;
+        let data_root = dirs::data_dir().ok_or_else(|| {
+            AppError::Invalid("OS application data directory is unavailable".into())
+        })?;
+        let cache_root = dirs::cache_dir().ok_or_else(|| {
+            AppError::Invalid("OS application cache directory is unavailable".into())
+        })?;
         Ok(Self::from_roots(manifest, data_root, cache_root))
     }
 
@@ -169,7 +171,13 @@ impl BrandPaths {
 fn sanitize_path_component(value: &str) -> String {
     value
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -180,7 +188,14 @@ pub struct Brand {
     override_applied: bool,
 }
 
-const OVERRIDABLE_KEYS: &[&str] = &["productName", "tagline", "theme", "assets", "features", "prompts"];
+const OVERRIDABLE_KEYS: &[&str] = &[
+    "productName",
+    "tagline",
+    "theme",
+    "assets",
+    "features",
+    "prompts",
+];
 
 impl Brand {
     /// Load the embedded manifest. If `override_path` is provided (or the default
@@ -208,9 +223,15 @@ impl Brand {
                 let raw = std::fs::read_to_string(path)?;
                 let overlay: serde_json::Value = serde_json::from_str(&raw)?;
                 let merged = apply_override(&manifest, overlay)?;
-                Ok(Self { manifest: merged, override_applied: true })
+                Ok(Self {
+                    manifest: merged,
+                    override_applied: true,
+                })
             }
-            _ => Ok(Self { manifest, override_applied: false }),
+            _ => Ok(Self {
+                manifest,
+                override_applied: false,
+            }),
         }
     }
 
@@ -237,7 +258,10 @@ impl Brand {
 
 /// Applies only allow-listed top-level keys. Identity and storage fields are
 /// immutable at runtime so an override can never redirect the vault or updater.
-pub fn apply_override(manifest: &BrandManifest, overlay: serde_json::Value) -> AppResult<BrandManifest> {
+pub fn apply_override(
+    manifest: &BrandManifest,
+    overlay: serde_json::Value,
+) -> AppResult<BrandManifest> {
     let overlay_object = overlay
         .as_object()
         .ok_or_else(|| AppError::Invalid("brand.override.json must be a JSON object".into()))?;
@@ -285,10 +309,14 @@ fn validate(manifest: &BrandManifest) -> AppResult<()> {
         return Err(AppError::Invalid("brandId is empty".into()));
     }
     if manifest.storage_dir_name.contains(['/', '\\']) {
-        return Err(AppError::Invalid("storageDirName must not contain path separators".into()));
+        return Err(AppError::Invalid(
+            "storageDirName must not contain path separators".into(),
+        ));
     }
     if manifest.sqlite_file_name.contains(['/', '\\']) {
-        return Err(AppError::Invalid("sqliteFileName must not contain path separators".into()));
+        return Err(AppError::Invalid(
+            "sqliteFileName must not contain path separators".into(),
+        ));
     }
     if manifest.theme.tokens.dark.accent_primary.trim().is_empty()
         || manifest.theme.tokens.light.accent_primary.trim().is_empty()
@@ -313,7 +341,10 @@ mod tests {
         let brand = Brand::embedded().expect("embedded brand must parse");
         assert_eq!(brand.manifest().brand_id, generated_brand::BRAND_ID);
         assert_eq!(brand.manifest().product_name, generated_brand::PRODUCT_NAME);
-        assert_eq!(brand.manifest().sqlite_file_name, generated_brand::SQLITE_FILE_NAME);
+        assert_eq!(
+            brand.manifest().sqlite_file_name,
+            generated_brand::SQLITE_FILE_NAME
+        );
         assert!(!brand.override_applied());
         assert_eq!(
             brand.manifest().theme.tokens.dark.accent_primary,
@@ -354,7 +385,10 @@ mod tests {
         let manifest = brand.manifest();
         assert!(brand.override_applied());
         assert_eq!(manifest.product_name, "AcmeVault Notes");
-        assert_eq!(manifest.theme.tokens.dark.accent_primary, "oklch(0.70 0.20 30)");
+        assert_eq!(
+            manifest.theme.tokens.dark.accent_primary,
+            "oklch(0.70 0.20 30)"
+        );
         // unaffected token remains inherited
         assert_eq!(
             manifest.theme.tokens.dark.bg_primary,
@@ -365,10 +399,16 @@ mod tests {
                 .1
         );
         assert_eq!(manifest.assets.wordmark_dark, "/tmp/acme-dark.svg");
-        assert_eq!(manifest.prompts.as_ref().unwrap().slide_ocr.as_deref(), Some("Extract labels only."));
+        assert_eq!(
+            manifest.prompts.as_ref().unwrap().slide_ocr.as_deref(),
+            Some("Extract labels only.")
+        );
         // immutable identity and vault location
         assert_eq!(manifest.brand_id, generated_brand::BRAND_ID);
-        assert_eq!(manifest.bundle_identifier, generated_brand::BUNDLE_IDENTIFIER);
+        assert_eq!(
+            manifest.bundle_identifier,
+            generated_brand::BUNDLE_IDENTIFIER
+        );
         assert_eq!(manifest.storage_dir_name, generated_brand::STORAGE_DIR_NAME);
         assert_eq!(manifest.sqlite_file_name, generated_brand::SQLITE_FILE_NAME);
     }
@@ -392,8 +432,17 @@ mod tests {
             PathBuf::from("/data-root"),
             PathBuf::from("/cache-root"),
         );
-        assert_eq!(paths.data_dir, PathBuf::from("/data-root").join(generated_brand::STORAGE_DIR_NAME));
-        assert_eq!(paths.db_path, paths.data_dir.join(generated_brand::SQLITE_FILE_NAME));
-        assert_eq!(paths.meeting_shots_dir("abc/evil"), paths.media_dir.join("abc-evil").join("shots"));
+        assert_eq!(
+            paths.data_dir,
+            PathBuf::from("/data-root").join(generated_brand::STORAGE_DIR_NAME)
+        );
+        assert_eq!(
+            paths.db_path,
+            paths.data_dir.join(generated_brand::SQLITE_FILE_NAME)
+        );
+        assert_eq!(
+            paths.meeting_shots_dir("abc/evil"),
+            paths.media_dir.join("abc-evil").join("shots")
+        );
     }
 }

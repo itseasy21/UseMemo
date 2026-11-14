@@ -61,8 +61,12 @@ impl EvidenceIndex {
         for segment in transcript {
             let id = timestamp_evidence_id("T", segment.start_ms);
             index.speakers.insert(segment.speaker_label.clone());
-            index.transcript_by_seq.insert(segment.seq_no, segment.text.clone());
-            index.transcript_seq_by_id.insert(id.clone(), segment.seq_no);
+            index
+                .transcript_by_seq
+                .insert(segment.seq_no, segment.text.clone());
+            index
+                .transcript_seq_by_id
+                .insert(id.clone(), segment.seq_no);
             index.insert(EvidenceSource {
                 id,
                 kind: EvidenceKind::Transcript,
@@ -162,14 +166,15 @@ impl EvidenceIndex {
     pub fn speaker_is_known(&self, name: &str) -> bool {
         let name = normalize_name(name);
         !name.is_empty()
-            && self
-                .speakers
-                .iter()
-                .any(|speaker| normalize_name(speaker).contains(&name) || name.contains(&normalize_name(speaker)))
+            && self.speakers.iter().any(|speaker| {
+                normalize_name(speaker).contains(&name) || name.contains(&normalize_name(speaker))
+            })
     }
 
     pub fn transcript_seq_for(&self, evidence_id: &str) -> Option<i64> {
-        self.transcript_seq_by_id.get(&normalize_evidence_id(evidence_id)).copied()
+        self.transcript_seq_by_id
+            .get(&normalize_evidence_id(evidence_id))
+            .copied()
     }
 }
 
@@ -245,7 +250,8 @@ mod tests {
                 speaker_id: None,
                 speaker_label: "Alex".into(),
                 audio_channel: "system".into(),
-                text: "I'll send over the updated AWS cost spreadsheet by Wednesday afternoon.".into(),
+                text: "I'll send over the updated AWS cost spreadsheet by Wednesday afternoon."
+                    .into(),
                 is_confirmed: true,
             },
         ];

@@ -59,12 +59,13 @@ impl HardwareProfile {
         let arch = std::env::consts::ARCH.to_string();
         let os = std::env::consts::OS.to_string();
         let metal = os == "macos" && arch == "aarch64";
-        let npu = if metal { "apple-neural-engine" } else { "unknown" }.to_string();
-        let accelerator = if metal {
-            "Metal FP16"
+        let npu = if metal {
+            "apple-neural-engine"
         } else {
-            "XNNPACK CPU"
-        };
+            "unknown"
+        }
+        .to_string();
+        let accelerator = if metal { "Metal FP16" } else { "XNNPACK CPU" };
         Self {
             tier: HardwareTier::from_ram_bytes(ram_bytes),
             ram_bytes,
@@ -91,14 +92,19 @@ impl HardwareProfile {
 fn detect_ram_bytes() -> Option<u64> {
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("sysctl").args(["-n", "hw.memsize"]).output().ok()?;
+        let output = std::process::Command::new("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output()
+            .ok()?;
         output.status.success().then_some(())?;
         String::from_utf8_lossy(&output.stdout).trim().parse().ok()
     }
     #[cfg(target_os = "linux")]
     {
         let contents = std::fs::read_to_string("/proc/meminfo").ok()?;
-        let line = contents.lines().find(|line| line.starts_with("MemTotal:"))?;
+        let line = contents
+            .lines()
+            .find(|line| line.starts_with("MemTotal:"))?;
         let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
         Some(kib * 1024)
     }
@@ -238,7 +244,8 @@ pub fn catalog(registry: &ModelRegistry, hardware: &HardwareProfile) -> Vec<Mode
             role: ModelRole::Asr,
             repo: registry.default_asr_repo.clone(),
             files: vec![parakeet()],
-            description: "INT8 FastConformer-TDT, 25 languages, native punctuation and timestamps".into(),
+            description: "INT8 FastConformer-TDT, 25 languages, native punctuation and timestamps"
+                .into(),
             min_ram_gb: 8,
             recommended: recommended_asr == registry.default_asr_repo,
             accelerator: "XNNPACK CPU / GPU".into(),
@@ -258,7 +265,8 @@ pub fn catalog(registry: &ModelRegistry, hardware: &HardwareProfile) -> Vec<Mode
             role: ModelRole::DiarizationSegmentation,
             repo: registry.diarization_repo.clone(),
             files: vec![diarization_segmentation(), speaker_embedding()],
-            description: "pyannote 30s segmentation + WeSpeaker FP16 256-dim speaker embeddings".into(),
+            description: "pyannote 30s segmentation + WeSpeaker FP16 256-dim speaker embeddings"
+                .into(),
             min_ram_gb: 4,
             recommended: true,
             accelerator: "XNNPACK CPU".into(),
@@ -268,7 +276,8 @@ pub fn catalog(registry: &ModelRegistry, hardware: &HardwareProfile) -> Vec<Mode
             role: ModelRole::Slm,
             repo: registry.default_slm_repo.clone(),
             files: vec![gemma_e2b()],
-            description: "QAT INT4, 32k context, text + vision synthesis for 8-15 GB systems".into(),
+            description: "QAT INT4, 32k context, text + vision synthesis for 8-15 GB systems"
+                .into(),
             min_ram_gb: 8,
             recommended: recommended_slm == registry.default_slm_repo,
             accelerator: "Metal / Vulkan / XNNPACK".into(),
@@ -286,8 +295,14 @@ pub fn catalog(registry: &ModelRegistry, hardware: &HardwareProfile) -> Vec<Mode
     ]
 }
 
-pub fn recommended_artifacts(registry: &ModelRegistry, hardware: &HardwareProfile) -> Vec<ModelArtifact> {
-    catalog(registry, hardware).into_iter().filter(|artifact| artifact.recommended).collect()
+pub fn recommended_artifacts(
+    registry: &ModelRegistry,
+    hardware: &HardwareProfile,
+) -> Vec<ModelArtifact> {
+    catalog(registry, hardware)
+        .into_iter()
+        .filter(|artifact| artifact.recommended)
+        .collect()
 }
 
 /// Resolve a model artifact from the registry by role, honoring hardware tier for
@@ -319,7 +334,9 @@ pub fn safe_model_filename(filename: &str) -> AppResult<&str> {
     if valid {
         Ok(filename)
     } else {
-        Err(AppError::Invalid(format!("unsafe model filename: {filename}")))
+        Err(AppError::Invalid(format!(
+            "unsafe model filename: {filename}"
+        )))
     }
 }
 
@@ -346,7 +363,10 @@ mod tests {
     fn low_tier_selects_whisper_and_e2b() {
         let hardware = HardwareProfile::with_ram(4 * GIB);
         let recommended = recommended_artifacts(&registry(), &hardware);
-        let ids: Vec<_> = recommended.iter().map(|artifact| artifact.id.as_str()).collect();
+        let ids: Vec<_> = recommended
+            .iter()
+            .map(|artifact| artifact.id.as_str())
+            .collect();
         assert!(ids.contains(&"whisper-tiny"));
         assert!(ids.contains(&"gemma-4-e2b-it"));
         assert!(!ids.contains(&"parakeet-tdt-0.6b-v3"));
@@ -356,7 +376,10 @@ mod tests {
     fn high_tier_selects_parakeet_and_e4b() {
         let hardware = HardwareProfile::with_ram(32 * GIB);
         let recommended = recommended_artifacts(&registry(), &hardware);
-        let ids: Vec<_> = recommended.iter().map(|artifact| artifact.id.as_str()).collect();
+        let ids: Vec<_> = recommended
+            .iter()
+            .map(|artifact| artifact.id.as_str())
+            .collect();
         assert!(ids.contains(&"parakeet-tdt-0.6b-v3"));
         assert!(ids.contains(&"gemma-4-e4b-it"));
     }
