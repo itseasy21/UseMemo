@@ -3,7 +3,7 @@
 import { Menu, Plus, Search } from "lucide-react";
 
 import { Sidebar } from "@/components/shell/Sidebar";
-import { BrandMark, Wordmark } from "@/components/ui/Brand";
+import { Wordmark } from "@/components/ui/Brand";
 import { BRAND } from "@/generated/brand";
 import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -25,8 +25,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Menu className="size-4" />
           </button>
-          <span className="flex min-w-0 items-center gap-2" aria-label={BRAND.productName}>
-            <BrandMark className="size-6" />
+          <span className="flex min-w-0 items-center" aria-label={BRAND.productName}>
             <Wordmark collapsed />
           </span>
           <div className="ml-auto flex items-center gap-1">

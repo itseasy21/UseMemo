@@ -53,22 +53,26 @@ export function BrandMark({ className }: { className?: string }) {
 
 export function Wordmark({
   collapsed = false,
+  showTagline = true,
   className,
 }: {
   collapsed?: boolean;
+  showTagline?: boolean;
   className?: string;
 }) {
   return (
     <span className={cn("flex min-w-0 items-center gap-2.5", className)}>
-      <BrandMark className={collapsed ? "size-8" : "size-8"} />
+      <BrandMark className="size-8" />
       {!collapsed && (
         <span className="min-w-0">
           <span className="block truncate text-[14px] font-semibold tracking-[-0.025em] text-text-primary">
             {BRAND.productName}
           </span>
-          <span className="mt-0.5 block truncate text-[8.5px] font-medium uppercase tracking-[0.18em] text-text-muted">
-            {BRAND.tagline}
-          </span>
+          {showTagline ? (
+            <span className="mt-0.5 block truncate text-[8.5px] font-medium uppercase tracking-[0.18em] text-text-muted">
+              {BRAND.tagline}
+            </span>
+          ) : null}
         </span>
       )}
     </span>

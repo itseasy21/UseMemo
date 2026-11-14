@@ -20,8 +20,8 @@ import { useWorkspaceStore } from "@/stores/workspace";
 
 const STATUS_LABEL: Record<string, string> = {
   recording: "Recording",
-  processing: "Processing",
-  completed: "Completed",
+  processing: "Transcribing",
+  completed: "Ready",
 };
 
 /**
@@ -100,8 +100,8 @@ export function LocalRecordings() {
       await refreshTranscript(selected.id);
       await refreshMeetings();
       pushToast(
-        "Transcription complete",
-        `${outcome.segments} segments · ${outcome.modelId} · ${outcome.skippedBlocks} silent blocks skipped`,
+        "Transcription ready",
+        `${outcome.segments} segments added to this recording`,
         "success",
       );
     } catch (cause) {
@@ -115,41 +115,50 @@ export function LocalRecordings() {
   };
 
   return (
-    <section aria-labelledby="recordings-heading" className="panel overflow-hidden">
-      <header className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3">
+    <section
+      id="local-recordings"
+      aria-labelledby="recordings-heading"
+      className="panel mt-5 scroll-mt-8 overflow-hidden"
+    >
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-5 py-4">
         <div>
-          <h2 id="recordings-heading" className="text-[12px] font-semibold text-text-primary">
-            Local recordings
+          <h2
+            id="recordings-heading"
+            className="text-[16px] font-semibold tracking-[-0.015em] text-text-primary"
+          >
+            Saved on this Mac
           </h2>
-          <p className="mt-0.5 text-[9.5px] text-text-muted">
+          <p className="mt-0.5 text-[12px] text-text-muted">
             {meetings === null
-              ? "Reading the local vault…"
-              : `${meetings.length} take${meetings.length === 1 ? "" : "s"} · SQLite + WAV on this device`}
+              ? "Looking for recordings…"
+              : meetings.length === 0
+                ? "Your recordings will appear here."
+                : `${meetings.length} ${meetings.length === 1 ? "recording" : "recordings"} · audio and notes stay on this device`}
           </p>
         </div>
-        <Pill tone="accent" icon={<ShieldCheck className="size-2.5" />}>
-          On-device ASR
+        <Pill tone="accent" className="text-[11px]" icon={<ShieldCheck className="size-3" />}>
+          On-device
         </Pill>
       </header>
 
       {meetings !== null && meetings.length === 0 ? (
-        <div className="flex items-start gap-3 px-4 py-5">
-          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-primary/40 text-text-muted">
-            <Mic className="size-3.5" />
+        <div className="flex flex-col items-center justify-center px-6 py-10 text-center">
+          <span className="flex size-12 items-center justify-center rounded-full border border-accent-primary/20 bg-accent-primary/[0.06] text-accent-primary">
+            <Mic className="size-5" />
           </span>
-          <div>
-            <p className="text-[11px] font-medium text-text-primary">No recordings yet</p>
-            <p className="mt-1 max-w-[460px] text-[10px] leading-5 text-text-muted">
-              Start a session with New recording. Audio is written to a 16 kHz WAV in the vault and
-              can be transcribed here once you stop.
-            </p>
-          </div>
+          <p className="mt-3 text-[14px] font-medium text-text-primary">
+            No recordings on this Mac yet
+          </p>
+          <p className="mt-1 max-w-[420px] text-[12.5px] leading-5 text-text-muted">
+            When you finish a recording, it will appear here. You can read the transcript or
+            transcribe it whenever you&apos;re ready.
+          </p>
         </div>
       ) : null}
 
       {meetings !== null && meetings.length > 0 ? (
-        <div className="grid min-h-0 gap-0 lg:grid-cols-[260px_minmax(0,1fr)]">
-          <div className="max-h-[260px] overflow-y-auto border-b border-border-subtle lg:max-h-[320px] lg:border-b-0 lg:border-r">
+        <div className="grid min-h-0 gap-0 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <div className="max-h-[280px] overflow-y-auto border-b border-border-subtle lg:max-h-[340px] lg:border-b-0 lg:border-r">
             {meetings.map((meeting) => {
               const active = meeting.id === selectedId;
               return (
@@ -158,7 +167,7 @@ export function LocalRecordings() {
                   type="button"
                   onClick={() => setSelectedId(meeting.id)}
                   className={cn(
-                    "flex w-full items-start gap-2 border-b border-border-subtle/70 px-3 py-2.5 text-left transition last:border-b-0",
+                    "flex w-full items-start gap-2.5 border-b border-border-subtle/70 px-4 py-3 text-left transition last:border-b-0",
                     active
                       ? "bg-accent-primary/[0.055] text-text-primary"
                       : "text-text-muted hover:bg-bg-elevated/40 hover:text-text-primary",
@@ -166,7 +175,7 @@ export function LocalRecordings() {
                 >
                   <span
                     className={cn(
-                      "mt-1 size-1.5 shrink-0 rounded-full",
+                      "mt-1.5 size-1.5 shrink-0 rounded-full",
                       meeting.status === "recording"
                         ? "bg-recording-pulse"
                         : active
@@ -175,10 +184,8 @@ export function LocalRecordings() {
                     )}
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[10.5px] font-medium">
-                      {meeting.title}
-                    </span>
-                    <span className="mt-0.5 flex items-center gap-1.5 text-[8.5px] text-text-muted">
+                    <span className="block truncate text-[13px] font-medium">{meeting.title}</span>
+                    <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-text-muted">
                       <span>{STATUS_LABEL[meeting.status] ?? meeting.status}</span>
                       <span className="text-border-subtle">·</span>
                       <span className="tabular">
@@ -187,7 +194,7 @@ export function LocalRecordings() {
                       {meeting.audioFilePath ? (
                         <>
                           <span className="text-border-subtle">·</span>
-                          <AudioLines className="size-2.5 text-accent-primary/70" />
+                          <AudioLines className="size-3 text-accent-primary/70" />
                         </>
                       ) : null}
                     </span>
@@ -197,66 +204,66 @@ export function LocalRecordings() {
             })}
           </div>
 
-          <div className="min-w-0 p-3.5">
+          <div className="min-w-0 p-4 sm:p-5">
             {selected ? (
               <>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="min-w-0 truncate text-[11.5px] font-medium text-text-primary">
+                  <h3 className="min-w-0 truncate text-[14.5px] font-semibold text-text-primary">
                     {selected.title}
                   </h3>
-                  <span className="text-[9px] text-text-muted">
+                  <span className="text-[11.5px] text-text-muted">
                     {new Date(selected.createdAt).toLocaleString()}
                   </span>
                   <Button
                     variant="primary"
-                    size="sm"
+                    size="md"
                     className="ml-auto gap-1.5"
                     onClick={() => void transcribe()}
                     disabled={!canTranscribe}
                     leading={
                       transcribing ? (
-                        <Loader2 className="size-3 animate-spin" />
+                        <Loader2 className="size-3.5 animate-spin" />
                       ) : (
-                        <AudioLines className="size-3" />
+                        <AudioLines className="size-3.5" />
                       )
                     }
                   >
                     {transcribing
                       ? progress
-                        ? `Transcribing · ${Math.round(progress.percent)}%`
+                        ? `Transcribing ${Math.round(progress.percent)}%`
                         : "Transcribing…"
                       : "Transcribe"}
                   </Button>
                 </div>
 
                 {!selected.audioFilePath ? (
-                  <p className="mt-2 text-[9.5px] leading-4 text-text-muted">
-                    This take has no saved audio, so there is nothing to transcribe.
+                  <p className="mt-2 text-[12px] leading-5 text-text-muted">
+                    This recording has no saved audio, so there is nothing to transcribe.
                   </p>
                 ) : null}
                 {error ? (
-                  <p className="mt-2 rounded-brand border border-recording-pulse/25 bg-recording-pulse/[0.06] px-2 py-1.5 text-[9.5px] leading-4 text-recording-pulse">
+                  <p className="mt-2 rounded-brand border border-recording-pulse/25 bg-recording-pulse/[0.06] px-3 py-2 text-[12px] leading-5 text-recording-pulse">
                     {error}
                   </p>
                 ) : null}
 
-                <div className="mt-2 max-h-[220px] overflow-y-auto rounded-brand border border-border-subtle/70 bg-bg-primary/25 px-2.5 py-2">
+                <div className="mt-3 max-h-[240px] overflow-y-auto rounded-brand border border-border-subtle/70 bg-bg-primary/25 px-3 py-2.5">
                   {segments === null ? (
-                    <p className="py-2 text-[9.5px] text-text-muted">Reading transcript…</p>
+                    <p className="py-2 text-[12px] text-text-muted">Reading transcript…</p>
                   ) : segments.length === 0 ? (
-                    <p className="py-2 text-[9.5px] leading-4 text-text-muted">
-                      No transcript yet. Install an ASR model in Model Studio, then run Transcribe
-                      on this take.
+                    <p className="py-2 text-[12.5px] leading-5 text-text-muted">
+                      No transcript yet. Install an AI model in AI models, then transcribe this
+                      recording.
                     </p>
                   ) : (
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       {segments.map((segment) => (
-                        <div key={segment.id} className="flex gap-2 text-[10px] leading-4">
-                          <span className="tabular w-10 shrink-0 pt-px text-[8.5px] text-text-muted">
+                        <div key={segment.id} className="flex gap-2.5 text-[12.5px] leading-5">
+                          <span className="tabular w-11 shrink-0 pt-0.5 text-[10.5px] text-text-muted">
                             {formatTimestamp(segment.startMs)}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="mr-1.5 text-[8.5px] font-medium uppercase tracking-[0.06em] text-accent-primary/80">
+                            <span className="mr-1.5 text-[10.5px] font-semibold uppercase tracking-[0.04em] text-accent-primary/80">
                               {segment.speakerLabel}
                             </span>
                             <span className="text-text-primary/90">{segment.text}</span>
@@ -268,7 +275,9 @@ export function LocalRecordings() {
                 </div>
               </>
             ) : (
-              <p className="text-[10px] text-text-muted">Select a recording to inspect it.</p>
+              <p className="text-[12.5px] text-text-muted">
+                Select a recording to read its transcript.
+              </p>
             )}
           </div>
         </div>
