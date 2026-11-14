@@ -62,5 +62,5 @@ pub fn run() {
             commands::models::delete_model,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Use Memo");
+        .expect("failed to run the Tauri application");
 }

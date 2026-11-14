@@ -61,7 +61,7 @@ impl ModelDownloader {
             ));
         }
         let client = reqwest::Client::builder()
-            .user_agent("UseMemo-model-downloader/0.1")
+            .user_agent(concat!("memo-model-downloader/", env!("CARGO_PKG_VERSION")))
             .build()?;
         Ok(Self {
             client,

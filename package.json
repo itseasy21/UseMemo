@@ -12,6 +12,7 @@
     "brand:apply": "tsx scripts/apply-brand.ts",
     "brand:check": "tsx scripts/apply-brand.ts --check",
     "brand:test": "node --import tsx --test scripts/apply-brand.test.ts",
+    "airgap:test": "node --import tsx --test scripts/airgap.test.ts",
     "probe": "bash scripts/probe-host-hardware.sh",
     "dev": "pnpm --filter @use-memo/frontend dev",
     "build": "pnpm --filter @use-memo/frontend build",
@@ -19,7 +20,7 @@
     "tauri:dev": "pnpm --filter @use-memo/frontend tauri:dev",
     "tauri:build": "pnpm --filter @use-memo/frontend tauri:build",
     "test:rust": "cargo test --workspace",
-    "test": "pnpm brand:test && pnpm test:rust",
+    "test": "pnpm brand:test && pnpm airgap:test && pnpm test:rust",
     "format:check": "cargo fmt --all -- --check && pnpm --filter @use-memo/frontend format:check"
   },
   "devDependencies": {

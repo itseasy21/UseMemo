@@ -1,6 +1,6 @@
-//! Clean-room dual-stream audio capture core for Use Memo.
+//! Clean-room dual-stream audio capture core for the white-label meeting stack.
 //!
-//! The crate deliberately contains no cloud calls, no telemetry, and no
+//! The crate deliberately contains no cloud calls, no usage reporting, and no
 //! platform capture bindings. Hardware backends implement [`source::AudioSource`]
 //! and push samples into [`mixer::DualStreamMixer`]; the DSP here is portable
 //! and unit-tested on any host.

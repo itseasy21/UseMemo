@@ -573,7 +573,11 @@ mod tests {
         assert!(markdown.contains("**[00:00–00:08] Alice**"));
         assert!(markdown.contains("## Screenshots"));
         assert_eq!(markdown.matches("](shots/").count(), 4);
-        assert!(!markdown.contains("Use Memo Project (GNU GPLv3) 0.1.0"));
+        assert!(!markdown.contains(&format!(
+            "{} {}",
+            brand.manifest().company_name,
+            env!("CARGO_PKG_VERSION")
+        )));
         for line in markdown.lines().filter(|line| line.starts_with("![")) {
             let link = line.split("](").nth(1).unwrap().trim_end_matches(')');
             let path = Path::new(&outcome.folder).join(link);
