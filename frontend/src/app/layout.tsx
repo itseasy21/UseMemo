@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 
+import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { GlobalOverlays } from "@/components/shell/GlobalOverlays";
 import { BRAND, DEFAULT_THEME_MODE } from "@/generated/brand";
 
 import "./globals.css";
@@ -24,8 +26,17 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={DEFAULT_THEME_MODE === "dark" ? "dark" : undefined} suppressHydrationWarning>
-      <body>{children}</body>
+    <html
+      lang="en"
+      className={DEFAULT_THEME_MODE === "dark" ? "dark" : undefined}
+      suppressHydrationWarning
+    >
+      <body>
+        <ThemeProvider>
+          {children}
+          <GlobalOverlays />
+        </ThemeProvider>
+      </body>
     </html>
   );
 }
