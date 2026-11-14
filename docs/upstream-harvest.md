@@ -105,7 +105,12 @@ macOS minimum version: the process-tap API (`AudioHardwareCreateProcessTap`) and
 - Verified dependency licenses for the reused path: `cpal` **Apache-2.0** (fork `Cargo.toml:7`), `cidre` **MIT** (`LICENSE.txt`), whisper.cpp submodule MIT, Tauri MIT/Apache-2.0.
 - **MIT → GPL-3.0-or-later is compatible** (one-way relicensing; retain the MIT text and copyright, mark modifications). Apache-2.0 is also GPLv3-compatible. No copyleft conflict.
 - Caveat: verbatim `KEEP` files make the result a **derivative fork**, not clean-room. A true clean-room would use this report + behavioral tests only. Decide explicitly; if copying, add `THIRD_PARTY_NOTICES.md` and SPDX headers.
-- Target inconsistency to fix first: `LICENSE` is Apache-2.0 text (201 lines) while `Cargo.toml:9`, `brand/brand.config.json:12` and `generated_brand.rs:13` say `GPL-3.0-or-later`. Either is MIT-compatible; the repo must state one.
+- **Resolution (2026-11-14):** `LICENSE` now contains GPL-3.0-or-later text, matching
+  `Cargo.toml`, `brand/brand.config.json`, and `generated_brand.rs`.
+- **Decision: clean-room.** Upstream was read for behavior only. No upstream source file
+  is vendored, so no MIT notice is carried for copied code. The audio crate is an
+  independent DSP implementation; dependency licenses (cpal Apache-2.0, cidre MIT, Tauri
+  MIT/Apache-2.0, whisper.cpp MIT) remain their own.
 
 ## 6. Build system and issue #911
 
