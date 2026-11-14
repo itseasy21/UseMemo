@@ -258,6 +258,7 @@ and [docs/acceptance.md](./docs/acceptance.md).
 
 ## Documentation
 
+- [Delivery summary](./docs/delivery-summary.md)
 - [Architecture](./docs/architecture.md)
 - [White-label and rebranding](./docs/rebranding.md)
 - [Offline policy](./docs/offline-policy.md)
