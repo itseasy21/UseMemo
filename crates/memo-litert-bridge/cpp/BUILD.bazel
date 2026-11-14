@@ -1,0 +1,15 @@
+cc_binary(
+    name = "memo-litert-worker",
+    srcs = [
+        "src/frame_io.h",
+        "src/main.cpp",
+        "src/omni_engine.cpp",
+        "src/omni_engine.h",
+    ],
+    copts = ["-std=c++20", "-Wall", "-Wextra"],
+    includes = ["src"],
+)
+
+# Linking the upstream runtime is a separate target so the IPC scaffold remains
+# buildable without the multi-GB google-ai-edge/LiteRT-LM tree. Add the upstream
+# Bazel targets to `deps` and define MEMO_LITERT_LINKED when wiring M5.4.

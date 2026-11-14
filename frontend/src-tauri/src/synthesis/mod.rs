@@ -12,3 +12,5 @@ pub use orchestrator::{synthesize, SynthesisEngine};
 pub use parse::parse_synthesis;
 pub use types::*;
 pub use verifier::verify;
+
+pub mod sidecar;

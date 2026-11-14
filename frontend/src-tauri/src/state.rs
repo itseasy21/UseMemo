@@ -111,9 +111,11 @@ impl AppState {
 pub type StateParts = (Brand, Box<dyn ScreenCapture>, Arc<dyn SynthesisEngine>);
 
 pub fn production_state_parts() -> AppResult<StateParts> {
-    Ok((
-        Brand::load(None)?,
-        default_backend(),
-        Arc::new(UnavailableEngine),
-    ))
+    let brand = Brand::load(None)?;
+    let paths = brand.paths()?;
+    let hardware = HardwareProfile::detect();
+    let synthesis =
+        crate::synthesis::sidecar::sidecar_from_brand(&brand, &paths.models_dir, &hardware)
+            .unwrap_or_else(|| Arc::new(UnavailableEngine) as Arc<dyn SynthesisEngine>);
+    Ok((brand, default_backend(), synthesis))
 }

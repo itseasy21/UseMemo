@@ -56,9 +56,9 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 
 ## M5 — LiteRT-LM sidecar bridge
 
-- [ ] M5.1 C++20 `OmniEngine`/`OmniSession` worker source (`crates/memo-litert-bridge/cpp`)
-- [ ] M5.2 Length-prefixed stdio IPC protocol + Rust client/session types
-- [ ] M5.3 Bazel/CMake build scaffold and sidecar bundling docs
+- [x] M5.1 C++20 `OmniEngine`/`OmniSession` worker source (`crates/memo-litert-bridge/cpp`)
+- [x] M5.2 Length-prefixed stdio IPC protocol + Rust client/session types
+- [x] M5.3 Bazel/CMake build scaffold and sidecar bundling docs
 - [!] M5.4 Compile worker against upstream LiteRT-LM — requires Bazel + multi-GB native build, not run on this host session
 
 ## M6 — White-label UI (Next.js 15 / React 19)
