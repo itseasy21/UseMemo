@@ -76,6 +76,7 @@ export type MeetingRecord = {
   audioFilePath: string | null;
   systemAudioFilePath: string | null;
   systemAudioStartedAtMs: number;
+  diarizationEnabled: boolean;
   screenshotIntervalSec: number;
   asrModelId: string;
   slmModelId: string;

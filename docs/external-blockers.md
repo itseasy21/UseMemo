@@ -78,7 +78,8 @@ transaction. The real-model acceptance test transcribes known speech with timest
 ScreenCaptureKit `SCStream` (audio-only, 2×2 surface, current-process audio excluded) and
 writes `audio-system.wav` at 16 kHz mono beside the microphone archive. The stop path
 persists both paths plus the tap's start offset, and transcription merges the two archives
-on one timeline, labelling microphone segments `You` and loopback segments `Them`. The
+on one timeline, labelling microphone segments `You` and loopback segments `Them` unless
+post-hoc diarization separates the remote voices into `Speaker N`. The
 opt-in `MEMO_SYSTEM_AUDIO_E2E=1` acceptance plays a real tone and asserts non-silence. On
 the recorded host it skipped because Screen Recording was denied to the test process, so
 the runtime path still needs that grant and a rerun.
@@ -93,22 +94,27 @@ on a Windows host in this environment, so runtime behaviour stays unverified.
 - macOS requires the user's Screen Recording grant. Without it, start fails with an
   actionable message; the microphone take is rolled back and no phantom meeting remains.
 - Echo cancellation is not applied. The microphone can pick up the speakers, so headphones
-  are recommended. Channel labels describe the capture device, not voice identity.
+  are recommended. Channel labels describe the capture device; diarization labels are
+  acoustic clusters, not identities.
 - The system archive can legitimately be silent when nothing plays. That is reported as a
   fact (`system.silent`) rather than as invented transcript text.
 
+**Speaker diarization is implemented for the loopback archive.** After capture,
+`memo-diarize` runs energy-based VAD, MFCC mean/std embeddings, and deterministic k-means
+over the system track. Voices become `Speaker N` only when the clustering separates them;
+short, overlapping, or single-voice audio stays `Them`. This is acoustic clustering, not
+voice identification: no voiceprint is stored or matched across meetings, and the
+microphone stays `You`. The pipeline is CPU-only and needs no model download. The crate's
+17 tests use synthetic alternating timbres; a real two-voice call and overlapping speech
+have not been verified on this host.
+
 **Still not implemented:**
 
-- **Speaker diarization.** Channel labels are `You`/`Them`; no voiceprint embedding or
-  clustering runs. The voiceprint columns and model registry entry exist but are unused.
 - **iOS/Android capture.** `cpal` compiles for mobile targets, but microphone permission
   prompts, audio-session categories, and the Tauri mobile project are not wired or tested.
   The engine and WAV/ASR layers are portable Rust with no desktop-only dependency.
 - **Streaming ASR.** Transcription intentionally runs after the take. Live caption deltas
   would require a streaming decoder and a second model state; the UI does not claim them.
-
-**Unblock (diarization):** run the registry segmentation/embedding models after capture and
-cluster into `speakers`, keeping all inference local.
 
 ## Cross-platform screenshot capture
 

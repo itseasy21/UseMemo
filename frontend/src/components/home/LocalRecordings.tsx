@@ -101,7 +101,9 @@ export function LocalRecordings() {
       await refreshMeetings();
       pushToast(
         "Transcription ready",
-        `${outcome.segments} segments added to this recording`,
+        `${outcome.segments} segments · ${outcome.speakerCount} ${
+          outcome.speakerCount === 1 ? "speaker" : "speakers"
+        }`,
         "success",
       );
     } catch (cause) {

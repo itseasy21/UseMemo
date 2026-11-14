@@ -1,8 +1,10 @@
 //! Meeting-level transcription: decode, block, recognize, persist.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use memo_diarize::{diarize, speaker_at, Diarization, DiarizationConfig};
 use tauri::{AppHandle, Emitter};
 
 use crate::asr::engine::{block_ranges, clean_text, is_silent, AsrEngine, BLOCK_MS};
@@ -14,9 +16,10 @@ use crate::model_registry::{catalog, HardwareProfile, ModelRole};
 use crate::state::AppState;
 use crate::storage::NewTranscriptSegment;
 
-/// Speaker labels are channel-based until real diarization exists. Naming the
-/// microphone "You" and the loopback "Them" is honest: it reflects which
-/// device captured the sound, not an inferred identity.
+/// The microphone is always the local user; loopback speech is split into
+/// `Speaker N` only when the acoustic clustering actually separates voices.
+/// Falling back to `Them` is intentional: a channel label is a fact, a guessed
+/// identity is not.
 const MIC_LABEL: &str = "You";
 const MIC_CHANNEL: &str = "mic";
 const SYSTEM_LABEL: &str = "Them";
@@ -31,6 +34,7 @@ pub struct TranscriptionOutcome {
     pub blocks: usize,
     pub skipped_blocks: usize,
     pub channels: usize,
+    pub speaker_count: usize,
     pub duration_ms: i64,
 }
 
@@ -44,7 +48,7 @@ struct SourceTrack {
 struct DecodedTrack {
     channel: AudioChannel,
     offset_ms: i64,
-    samples: Vec<f32>,
+    samples: Arc<Vec<f32>>,
 }
 
 /// Transcribe a meeting's archive, replacing any previous transcript.
@@ -86,7 +90,15 @@ pub async fn transcribe_meeting(
         .await?;
     let _ = emit_progress(app, meeting_id, "loading", 0.0, 0, 0, 0);
 
-    let result = run(app, state, meeting_id, &sources, &meeting.asr_model_id).await;
+    let result = run(
+        app,
+        state,
+        meeting_id,
+        &sources,
+        &meeting.asr_model_id,
+        meeting.diarization_enabled,
+    )
+    .await;
     let duration = result
         .as_ref()
         .map(|outcome| outcome.duration_ms)
@@ -129,6 +141,7 @@ async fn run(
     meeting_id: &str,
     sources: &[SourceTrack],
     preferred_model: &str,
+    diarization_enabled: bool,
 ) -> AppResult<TranscriptionOutcome> {
     let mut tracks = Vec::with_capacity(sources.len());
     for source in sources {
@@ -139,7 +152,7 @@ async fn run(
         tracks.push(DecodedTrack {
             channel: source.channel,
             offset_ms: source.offset_ms,
-            samples,
+            samples: Arc::new(samples),
         });
     }
 
@@ -163,9 +176,23 @@ async fn run(
     let mut blocks = 0usize;
 
     for (track, ranges) in tracks.iter().zip(ranges_per_track.iter()) {
-        let (label, channel) = match track.channel {
-            AudioChannel::Microphone => (MIC_LABEL, MIC_CHANNEL),
-            AudioChannel::System => (SYSTEM_LABEL, SYSTEM_CHANNEL),
+        let channel = match track.channel {
+            AudioChannel::Microphone => MIC_CHANNEL,
+            AudioChannel::System => SYSTEM_CHANNEL,
+        };
+
+        // Diarization is post-hoc and only meaningful for the loopback. The
+        // microphone is the local user by construction.
+        let diarization = if diarization_enabled && track.channel == AudioChannel::System {
+            let samples = Arc::clone(&track.samples);
+            let config = DiarizationConfig::default();
+            Some(
+                tokio::task::spawn_blocking(move || diarize(&samples, &config))
+                    .await
+                    .map_err(|error| AppError::Asr(format!("diarization task failed: {error}")))?,
+            )
+        } else {
+            None
         };
 
         for (start, end) in ranges {
@@ -186,13 +213,19 @@ async fn run(
                     let Some(text) = clean_text(&segment.text) else {
                         continue;
                     };
-                    let start_ms = offset_ms + segment.start_ms.max(0);
+                    let relative_start = segment.start_ms.max(0);
+                    let start_ms = offset_ms + relative_start;
                     let end_ms = (offset_ms + segment.end_ms).max(start_ms);
                     pending.push(NewTranscriptSegment {
                         seq_no: 0,
                         start_ms,
                         end_ms,
-                        speaker_label: label.into(),
+                        speaker_label: label_for(
+                            track.channel,
+                            diarization.as_ref(),
+                            relative_start,
+                            segment.end_ms.max(relative_start),
+                        ),
                         audio_channel: channel.into(),
                         text,
                         is_confirmed: true,
@@ -226,6 +259,11 @@ async fn run(
     // Swap the transcript in one transaction only after every block decoded.
     // A failure above leaves the previous transcript untouched.
     let stored = state.db.replace_transcript(meeting_id, pending).await?;
+    let speaker_count = stored
+        .iter()
+        .map(|segment| segment.speaker_label.as_str())
+        .collect::<BTreeSet<_>>()
+        .len();
     for segment in &stored {
         let _ = app.emit(
             crate::events::ASR_SEGMENT_DELTA,
@@ -248,8 +286,26 @@ async fn run(
         blocks,
         skipped_blocks,
         channels: tracks.len(),
+        speaker_count,
         duration_ms,
     })
+}
+
+fn label_for(
+    channel: AudioChannel,
+    diarization: Option<&Diarization>,
+    start_ms: i64,
+    end_ms: i64,
+) -> String {
+    if channel == AudioChannel::Microphone {
+        return MIC_LABEL.to_string();
+    }
+    match diarization {
+        Some(result) if result.speakers > 1 => speaker_at(&result.turns, start_ms, end_ms)
+            .map(|speaker| format!("Speaker {speaker}"))
+            .unwrap_or_else(|| SYSTEM_LABEL.to_string()),
+        _ => SYSTEM_LABEL.to_string(),
+    }
 }
 
 /// Order both channels on one clock, microphone first on an exact tie, then
@@ -401,12 +457,14 @@ mod tests {
             blocks: 3,
             skipped_blocks: 1,
             channels: 2,
+            speaker_count: 3,
             duration_ms: 90_000,
         };
         let value = serde_json::to_value(outcome).unwrap();
         assert_eq!(value["engineId"], "whisper-rs");
         assert_eq!(value["skippedBlocks"], 1);
         assert_eq!(value["channels"], 2);
+        assert_eq!(value["speakerCount"], 3);
     }
 
     fn segment(start_ms: i64, channel: &str) -> NewTranscriptSegment {
@@ -423,6 +481,33 @@ mod tests {
             text: format!("{channel} at {start_ms}"),
             is_confirmed: true,
         }
+    }
+
+    #[test]
+    fn channel_labels_stay_honest_without_diarization() {
+        assert_eq!(
+            label_for(AudioChannel::Microphone, None, 0, 1_000),
+            MIC_LABEL
+        );
+        assert_eq!(
+            label_for(AudioChannel::System, None, 0, 1_000),
+            SYSTEM_LABEL
+        );
+
+        let diarization = Diarization {
+            turns: vec![memo_diarize::SpeakerTurn {
+                start_ms: 0,
+                end_ms: 1_000,
+                speaker: 2,
+            }],
+            speakers: 2,
+            speech_ms: 1_000,
+            windows: 1,
+        };
+        assert_eq!(
+            label_for(AudioChannel::System, Some(&diarization), 100, 900),
+            "Speaker 2"
+        );
     }
 
     #[test]

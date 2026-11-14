@@ -86,7 +86,6 @@ function initialState(): Record<string, RuntimeState> {
 
 function modelIcon(model: DemoModel): LucideIcon {
   if (model.role.toLowerCase().includes("speech")) return Activity;
-  if (model.role.toLowerCase().includes("diarization")) return Boxes;
   if (model.role.toLowerCase().includes("synthesis")) return Sparkles;
   return Cpu;
 }
@@ -662,8 +661,9 @@ export function ModelManager() {
                 Models that never phone home.
               </h1>
               <p className="mt-2 max-w-[560px] text-[12px] leading-6 text-text-muted">
-                Five pinned artifacts power speech, diarization, and synthesis on this machine.
-                Downloads are explicit, hashed, and never load before verification.
+                Pinned artifacts power speech and synthesis on this machine. Diarization runs on the
+                CPU after capture with no download. Downloads are explicit, hashed, and never load
+                before verification.
               </p>
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <Button

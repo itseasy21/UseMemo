@@ -362,12 +362,12 @@ pub fn audio_capabilities() -> AudioCapabilities {
         microphone: true,
         system_audio: supported,
         system_backend: system_audio_backend().map(str::to_string),
-        diarization: false,
+        diarization: true,
         echo_cancellation: false,
         archive_sample_rate: ARCHIVE_SAMPLE_RATE,
         note: supported.then(|| {
-            "System audio records what this machine plays. Echo cancellation is not applied; \
-             wear headphones so the microphone does not re-record the call."
+            "System audio records what this machine plays. Speaker labels come from on-device \
+             acoustic clustering; echo cancellation is not applied, so wear headphones."
                 .into()
         }),
     }

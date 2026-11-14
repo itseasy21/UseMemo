@@ -32,10 +32,12 @@ After the M7 closeout, the real capture → transcription path was implemented a
 | Transcription | 30 s blocks, silence skipping, transactional transcript replacement, `asr:progress` |
 | System audio | macOS ScreenCaptureKit audio-only tap → independent `audio-system.wav`; WASAPI backend type-checks for the Windows target, not run here |
 | Channel merge | Both archives decoded on one clock; microphone `You`, loopback `Them`; renumbered `seq_no` |
+| Speaker diarization | Clean-room VAD + MFCC embeddings + deterministic k-means over the loopback archive; `Speaker N` only when voices separate, `Them` otherwise; CPU-only, no model download |
+| Diarization toggle | `meetings.diarization_enabled` (migration 0003), default on; `speakerCount` returned with the transcription outcome |
 | Model integrity | `ModelFile.sha256` is mandatory; real Whisper and Gemma digests pinned |
 | macOS permission | `NSMicrophoneUsageDescription` + audio-input entitlement generated into the bundle; Screen Recording requested for loopback |
 | UI | Local recordings panel lists real takes, shows transcripts, and runs transcription with progress; the new-recording dialog probes `audio_capabilities` and meters both channels |
-| Honesty | Speaker diarization stays disabled and labelled; echo cancellation is explicitly absent; Windows loopback and the macOS runtime capture (TCC denied here) are marked unverified |
+| Honesty | Diarization is acoustic clustering of the loopback, not voice identification; short or overlapping speech stays `Them`; echo cancellation is explicitly absent; Windows loopback and the macOS runtime capture (TCC denied here) are marked unverified |
 
 Real-model evidence:
 
@@ -43,6 +45,22 @@ Real-model evidence:
 ASR transcript: The quarterly launch review starts on Monday, we decided to delay the beta by two weeks.
 test whisper_transcribes_known_speech_with_timestamps ... ok
 ```
+
+## Diarization slice (M8.12)
+
+Diarization runs after the take on the loopback archive only. A dependency-free crate
+(`crates/memo-diarize`) performs energy VAD → MFCC mean/std embeddings → deterministic
+k-means with separation and minimum-duration gates. The microphone remains `You`; remote
+speech becomes `Speaker 1`, `Speaker 2`, … only when the clustering separates it, otherwise
+it stays `Them`. The per-meeting toggle is persisted and the outcome reports `speakerCount`.
+
+```text
+cargo test -p memo-diarize       17 passed
+cargo test (label_for)           microphone You · system Them · diarized Speaker 2
+```
+
+The tests use synthetic alternating timbres. A real two-voice meeting, crosstalk, and
+music/noise beds are not verified on this host.
 
 ## Packaging slice (M8.14)
 
@@ -69,7 +87,7 @@ pnpm brand:check   Brand outputs are current for Use Memo.
 pnpm brand:test    13 passed
 pnpm package:test  8 passed
 pnpm airgap:test   5 passed
-cargo test         41 audio + 8 bridge + 100 host + 3 acceptance (2 gated skip by default)
+cargo test         41 audio + 8 bridge + 17 diarization + 101 host + 3 acceptance (2 gated skip by default)
 MEMO_SYSTEM_AUDIO_E2E=1 ...  skipped: Screen Recording denied to the test process
 pnpm typecheck     clean
 pnpm build         12 static pages exported
@@ -78,7 +96,7 @@ cargo fmt --check  clean
 cargo clippy ...   Finished with -D warnings (host + audio crate)
 ```
 
-That is **178 automated checks** (26 TypeScript/Node, 152 Rust), including one gated ASR
+That is **196 automated checks** (26 TypeScript/Node, 170 Rust), including one gated ASR
 acceptance that ran with a real 190 MB Whisper model and produced the transcript above.
 The manual native and browser fallback checklists are in [acceptance.md](./acceptance.md).
 
@@ -131,9 +149,9 @@ Documented in [external-blockers.md](./external-blockers.md):
 - M5.4 native LiteRT-LM worker compilation (Bazel + multi-GB upstream tree).
 - Model weights (not vendored; every catalog digest is pinned).
 - System-audio Windows runtime verification (the WASAPI backend compiles and lints for the
-  Windows target but has not run on a Windows host here), diarization, mobile capture
-  plumbing, cross-platform screenshot backends, OCR, and Developer ID notarization (the
-  packaging and local-signing path is implemented).
+  Windows target but has not run on a Windows host here), mobile capture plumbing,
+  cross-platform screenshot backends, OCR, and Developer ID notarization (the packaging and
+  local-signing path is implemented).
 
 ## Reproduce
 

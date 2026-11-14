@@ -31,11 +31,12 @@ import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 /**
- * Diarization is still contract-only: every channel gets one honest label
- * ("You" for the microphone, "Them" for the loopback). System audio is enabled
- * from the host's capability probe rather than a hardcoded platform list.
+ * The microphone is always "You". The loopback is diarized after the take:
+ * voices become "Speaker N" when the on-device clustering separates them and
+ * fall back to "Them" otherwise. System audio is enabled from the host's
+ * capability probe rather than a hardcoded platform list.
  */
-const DIARIZATION_AVAILABLE = false;
+const DIARIZATION_AVAILABLE = true;
 
 type SourceId = "system" | "screenshots" | "diarize";
 
@@ -109,9 +110,7 @@ export function NewRecordingDialog() {
         {
           id: "diarize" as const,
           label: "Speaker diarization",
-          detail: DIARIZATION_AVAILABLE
-            ? "Voiceprints stay in the vault"
-            : "Not in this build · one label per channel",
+          detail: "On-device acoustic clustering · no model download",
           icon: Users,
           available: DIARIZATION_AVAILABLE,
         },
@@ -247,6 +246,7 @@ export function NewRecordingDialog() {
           : 0,
         asrModelId: installedAsr?.id,
         slmModelId: installedSlm?.id,
+        diarization: sources.diarize,
       });
       const recording = meeting
         ? await startRecording(meeting.id, { captureSystemAudio: sources.system })
@@ -441,7 +441,7 @@ export function NewRecordingDialog() {
             </div>
             <p className="mt-2 text-[10.5px] leading-5 text-text-muted">
               {sources.system
-                ? "Two independent 16 kHz mono WAVs are written to the vault: the microphone is labelled You, the loopback is labelled Them. "
+                ? "Two independent 16 kHz mono WAVs are written to the vault: the microphone is labelled You, the loopback is kept on its own track. "
                 : "The microphone streams to a 16 kHz mono WAV in the vault while you record. "}
               Headers are patched on stop so an interrupted take stays playable, and screenshots are
               deduped before they are written.
@@ -532,9 +532,9 @@ export function NewRecordingDialog() {
           <div className="flex items-center gap-2 rounded-brand border border-dashed border-border-subtle bg-bg-primary/20 px-3 py-2 text-[10px] leading-4 text-text-muted">
             <Mic className="size-3 shrink-0 text-accent-primary" />
             <span>
-              Microphone segments are labelled “You” and loopback segments “Them”. Speaker
-              diarization is not enabled in this build, so labels describe the channel rather than a
-              guessed identity.
+              Microphone segments are labelled “You”. Loopback speech is split into Speaker 1,
+              Speaker 2… when voices are acoustically separable; short or overlapping speech stays
+              “Them” rather than guessing an identity.
             </span>
           </div>
         </div>

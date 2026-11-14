@@ -1144,34 +1144,6 @@ export const DEMO_MODELS: DemoModel[] = [
     speedMbps: 0,
   },
   {
-    id: "speaker-diarization-lite",
-    name: "Speaker Diarization Lite",
-    role: "Who spoke when",
-    repo: MODEL_REGISTRY.diarizationRepo,
-    description:
-      "pyannote 30s segmentation plus WeSpeaker FP16 256-dim embeddings. Voiceprints never leave the vault.",
-    files: [
-      {
-        filename: "pyannote_seg30.onnx",
-        sizeBytes: 6_207_569,
-        sha256: "7b1e3d5c9a0f2b4d6e8c1a3b5d7f9e0c2a4b6d8f1e3c5a7b9d0f2e4c6a8b1d3f",
-      },
-      {
-        filename: "wespeaker_emb_fp16.tflite",
-        sizeBytes: 14_050_918,
-        sha256: "4a6c8e0b2d4f6a8c0e2b4d6f8a1c3e5b7d9f0a2c4e6b8d1f3a5c7e9b0d2f4a6c",
-      },
-    ],
-    accelerator: "XNNPACK CPU",
-    minRamGb: 4,
-    recommended: true,
-    enabled: true,
-    status: "installed",
-    verified: true,
-    downloadProgress: 100,
-    speedMbps: 0,
-  },
-  {
     id: "gemma-4-e2b-it",
     name: "Gemma 4 E2B IT",
     role: "Synthesis SLM",

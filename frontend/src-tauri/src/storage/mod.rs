@@ -27,6 +27,7 @@ pub struct Meeting {
     pub audio_file_path: Option<String>,
     pub system_audio_file_path: Option<String>,
     pub system_audio_started_at_ms: i64,
+    pub diarization_enabled: bool,
     pub screenshot_interval_sec: i64,
     pub asr_model_id: String,
     pub slm_model_id: String,
@@ -129,6 +130,9 @@ pub struct CreateMeetingInput {
     pub asr_model_id: Option<String>,
     pub slm_model_id: Option<String>,
     pub folder_id: Option<String>,
+    /// Split loopback speech into `Speaker N` labels after the take. Defaults
+    /// to on; the recognizer still runs either way.
+    pub diarization: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -267,8 +271,9 @@ impl Database {
             r#"
             INSERT INTO meetings (
                 id, title, status, created_at, updated_at, duration_ms, screenshot_interval_sec,
-                asr_model_id, slm_model_id, manual_notes_raw_md, folder_id, is_starred
-            ) VALUES (?1, ?2, ?3, ?4, ?4, 0, ?5, ?6, ?7, '', ?8, 0)
+                asr_model_id, slm_model_id, manual_notes_raw_md, folder_id, is_starred,
+                diarization_enabled
+            ) VALUES (?1, ?2, ?3, ?4, ?4, 0, ?5, ?6, ?7, '', ?8, 0, ?9)
             "#,
         )
         .bind(&id)
@@ -279,6 +284,7 @@ impl Database {
         .bind(&asr_model_id)
         .bind(&slm_model_id)
         .bind(&input.folder_id)
+        .bind(input.diarization.unwrap_or(true))
         .execute(&self.pool)
         .await?;
 
@@ -476,12 +482,20 @@ impl Database {
             ));
         }
         let id = Uuid::now_v7().to_string();
+        // `You` is the only stable identity the channel layout can prove.
+        // Generic labels stay per-meeting so two different "Speaker 1"s do not
+        // share a global voiceprint row.
+        let speaker_id = if segment.speaker_label.eq_ignore_ascii_case("You") {
+            Some(self.upsert_speaker("You", true).await?.id)
+        } else {
+            None
+        };
         sqlx::query(
             r#"
             INSERT INTO transcript_segments (
                 id, meeting_id, seq_no, start_ms, end_ms, speaker_id, speaker_label,
                 audio_channel, text, is_confirmed
-            ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, ?9)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             "#,
         )
         .bind(&id)
@@ -489,6 +503,7 @@ impl Database {
         .bind(segment.seq_no)
         .bind(segment.start_ms)
         .bind(segment.end_ms)
+        .bind(&speaker_id)
         .bind(&segment.speaker_label)
         .bind(&segment.audio_channel)
         .bind(&segment.text)
@@ -522,6 +537,15 @@ impl Database {
             }
         }
 
+        let needs_you = segments
+            .iter()
+            .any(|segment| segment.speaker_label.eq_ignore_ascii_case("You"));
+        let you_id = if needs_you {
+            Some(self.upsert_speaker("You", true).await?.id)
+        } else {
+            None
+        };
+
         let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM transcript_segments WHERE meeting_id = ?1")
             .bind(meeting_id)
@@ -531,12 +555,17 @@ impl Database {
         let mut stored = Vec::with_capacity(segments.len());
         for segment in segments {
             let id = Uuid::now_v7().to_string();
+            let speaker_id = if segment.speaker_label.eq_ignore_ascii_case("You") {
+                you_id.clone()
+            } else {
+                None
+            };
             sqlx::query(
                 r#"
                 INSERT INTO transcript_segments (
                     id, meeting_id, seq_no, start_ms, end_ms, speaker_id, speaker_label,
                     audio_channel, text, is_confirmed
-                ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, ?9)
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                 "#,
             )
             .bind(&id)
@@ -544,6 +573,7 @@ impl Database {
             .bind(segment.seq_no)
             .bind(segment.start_ms)
             .bind(segment.end_ms)
+            .bind(&speaker_id)
             .bind(&segment.speaker_label)
             .bind(&segment.audio_channel)
             .bind(&segment.text)
@@ -556,7 +586,7 @@ impl Database {
                 seq_no: segment.seq_no,
                 start_ms: segment.start_ms,
                 end_ms: segment.end_ms,
-                speaker_id: None,
+                speaker_id,
                 speaker_label: segment.speaker_label,
                 audio_channel: segment.audio_channel,
                 text: segment.text,
@@ -603,13 +633,20 @@ impl Database {
         if name.is_empty() {
             return Err(AppError::Invalid("speaker display name is empty".into()));
         }
-        if let Some(existing) = sqlx::query_as::<_, Speaker>(
+        if let Some(mut existing) = sqlx::query_as::<_, Speaker>(
             "SELECT * FROM speakers WHERE display_name = ?1 COLLATE NOCASE",
         )
         .bind(name)
         .fetch_optional(&self.pool)
         .await?
         {
+            if is_local_user && !existing.is_local_user {
+                sqlx::query("UPDATE speakers SET is_local_user = 1 WHERE id = ?1")
+                    .bind(&existing.id)
+                    .execute(&self.pool)
+                    .await?;
+                existing.is_local_user = true;
+            }
             return Ok(existing);
         }
         let id = Uuid::now_v7().to_string();
@@ -1030,6 +1067,7 @@ mod tests {
                 asr_model_id: Some("whisper-small".into()),
                 slm_model_id: Some("gemma-e4b".into()),
                 folder_id: None,
+                diarization: None,
             })
             .await
             .unwrap();
@@ -1101,6 +1139,7 @@ mod tests {
                 asr_model_id: Some("whisper-small".into()),
                 slm_model_id: Some("gemma-e4b".into()),
                 folder_id: None,
+                diarization: None,
             })
             .await
             .unwrap();
@@ -1145,6 +1184,7 @@ mod tests {
                 asr_model_id: Some("parakeet".into()),
                 slm_model_id: Some("gemma-e4b".into()),
                 folder_id: None,
+                diarization: None,
             })
             .await
             .unwrap();
@@ -1189,6 +1229,7 @@ mod tests {
                 asr_model_id: None,
                 slm_model_id: None,
                 folder_id: None,
+                diarization: None,
             })
             .await
             .unwrap();

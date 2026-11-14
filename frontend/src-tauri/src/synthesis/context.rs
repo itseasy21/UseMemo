@@ -128,6 +128,7 @@ mod tests {
             audio_file_path: None,
             system_audio_file_path: None,
             system_audio_started_at_ms: 0,
+            diarization_enabled: false,
             screenshot_interval_sec: 10,
             asr_model_id: "parakeet".into(),
             slm_model_id: "gemma".into(),

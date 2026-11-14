@@ -45,6 +45,7 @@ fn synthetic_35_second_session_exports_four_relative_webp_screenshots() {
         audio_file_path: None,
         system_audio_file_path: None,
         system_audio_started_at_ms: 0,
+        diarization_enabled: false,
         screenshot_interval_sec: 10,
         asr_model_id: "parakeet-tdt-0.6b-v3".into(),
         slm_model_id: "gemma-4-e2b-it".into(),

@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["frontend/src-tauri", "crates/memo-audio-capture", "crates/memo-litert-bridge"]
+members = [
+    "frontend/src-tauri",
+    "crates/memo-audio-capture",
+    "crates/memo-diarize",
+    "crates/memo-litert-bridge",
+]
 exclude = ["upstream"]
 
 [workspace.package]

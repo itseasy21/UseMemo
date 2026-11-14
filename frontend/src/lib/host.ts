@@ -138,6 +138,8 @@ export type TranscriptionOutcomeRecord = {
   blocks: number;
   skippedBlocks: number;
   channels: number;
+  /** Distinct speaker labels in the stored transcript, including `You`/`Them`. */
+  speakerCount: number;
   durationMs: number;
 };
 
@@ -158,6 +160,8 @@ export type CreateMeetingPayload = {
   asrModelId?: string;
   slmModelId?: string;
   folderId?: string;
+  /** Split loopback speech into `Speaker N` labels after the take. Defaults on. */
+  diarization?: boolean;
 };
 
 export function createMeeting(input: CreateMeetingPayload) {

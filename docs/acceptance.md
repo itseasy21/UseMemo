@@ -22,7 +22,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 | Air gap (`scripts/airgap.test.ts`) | 5 | No cloud SDK/endpoints, only allowlisted hosts, strict CSP, no browser network primitives |
 | `memo-audio-capture` | 41 | Ring buffers, mixing, resampling, downmix, level metering, WAV writer/reader, PCM formats |
 | `memo-litert-bridge` | 8 | Framing, size cap, request/response serde, worker timeout/error paths |
-| Tauri host | 100 | Storage/FTS, transactional transcript replacement, verifier, parser, export, screenshot policy, models, brand, events, sidecar, dual-channel session |
+| `memo-diarize` | 17 | VAD regions, MFCC finiteness, k-means separation, duration floors, turn alignment |
+| Tauri host | 101 | Storage/FTS, transactional transcript replacement, verifier, parser, export, screenshot policy, models, brand, events, sidecar, dual-channel session, speaker labels |
 | Screenshot/vault acceptance | 1 | Synthetic 35 s session, dedup, WebP export, relative assets, Markdown frontmatter |
 | ASR acceptance | 1 gated | Real whisper.cpp inference over known speech; skips unless a model and WAV are supplied |
 | System-audio acceptance | 1 gated | Real ScreenCaptureKit loopback over a played tone; skips unless enabled and granted |
@@ -178,6 +179,30 @@ The unit suite proves the parts that do not need a device:
   `You`/`Them` segments by `startMs` and renumbers `seq_no` across channels.
 - `storage::tests::recording_paths_store_microphone_and_system_archives` verifies both paths
   and the offset, and that a microphone-only retake clears a stale system path.
+
+## M8.12 — speaker diarization
+
+```bash
+cargo test -p memo-diarize
+cargo test -p use-memo asr::transcribe::tests::channel_labels_stay_honest_without_diarization
+```
+
+The crate suite covers VAD region merging and short-click rejection, MFCC finiteness and
+silence energy, k-means separation of two alternating timbres, the single-voice and duration
+floors, and `speaker_at` overlap/nearest-turn alignment. The host test proves the label
+policy: microphone is always `You`, the loopback falls back to `Them` without diarization,
+and a diarized turn becomes `Speaker 2`.
+
+Automated evidence (synthetic timbres only):
+
+```text
+cargo test -p memo-diarize       17 passed; 0 failed
+cargo test (label_for)           ok
+```
+
+Not verified on this host: a real two-voice meeting, crosstalk/overlap, and music/noise
+beds. Diarization is acoustic clustering, not voice identification; short or overlapping
+speech stays `Them`.
 
 ## M4.6 / M5 / M6 — host and UI gates
 

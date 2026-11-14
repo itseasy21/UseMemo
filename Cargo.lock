@@ -2382,6 +2382,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "memo-diarize"
+version = "0.1.0"
+
+[[package]]
 name = "memo-litert-bridge"
 version = "0.1.0"
 dependencies = [
@@ -5238,6 +5242,7 @@ dependencies = [
  "image",
  "libsqlite3-sys",
  "memo-audio-capture",
+ "memo-diarize",
  "memo-litert-bridge",
  "reqwest 0.12.28",
  "screencapturekit",
