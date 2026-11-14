@@ -208,9 +208,13 @@ brand/brand.config.json
   + brand/profiles/<profile>.json (optional deep merge)
         │
         ▼ scripts/apply-brand.ts
-  tauri.conf.json · capabilities/default.json · icons · resources/brand.config.json
+  tauri.conf.json · Info.plist · capabilities/default.json · icons · resources/brand.config.json
   generated_brand.rs · generated/brand.ts · brand-tokens.css · resolved manifest
 ```
+
+Release packaging (`scripts/package-release.ts`) consumes the Tauri bundle, stages normalized
+installers, verifies the macOS signature and audio-input entitlement, and writes
+`SHA256SUMS.txt` plus `release-manifest.json`. See [packaging.md](./packaging.md).
 
 Runtime loading reparses the embedded manifest, validates identity/storage fields, and
 merges only `productName`, `tagline`, `theme`, `assets`, `features`, and `prompts` from

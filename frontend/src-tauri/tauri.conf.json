@@ -87,6 +87,8 @@
     "license": "GPL-3.0-or-later",
     "macOS": {
       "minimumSystemVersion": "13.0",
+      "signingIdentity": "-",
+      "hardenedRuntime": true,
       "entitlements": "entitlements.plist"
     },
     "windows": {

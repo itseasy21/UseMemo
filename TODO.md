@@ -99,7 +99,12 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
       - Echo cancellation intentionally absent; headphones recommended
 - [ ] M8.12 Speaker diarization (segmentation + embedding + clustering)
 - [ ] M8.13 iOS/Android audio-session and permission plumbing
-- [ ] M8.14 Signing, notarization, updater artifacts, and CI packaging
+- [x] M8.14 Packaging, local signing, checksums, and CI
+      - `pnpm package:release` builds/stages DMG/MSI/AppImage-family installers, verifies the macOS signature and audio-input entitlement, and writes `SHA256SUMS.txt` plus `release-manifest.json`
+      - Generated `Info.plist` and `signingIdentity: "-"` produce valid ad-hoc, hardened-runtime local bundles; `APPLE_SIGNING_IDENTITY` overrides the config for Developer ID builds
+      - Local DMG verified with `codesign`, entitlement inspection, checksum verification, and a DMG mount; `spctl` rejects it as expected because only an Apple Development certificate is installed
+      - CI matrix for macOS arm64/x86_64, Windows, and Linux added but not executed in this workspace
+      - `createUpdaterArtifacts` stays false: offline updates are checksum-verified installer replacements, documented in `docs/packaging.md`
 
 ## Known external blockers
 
@@ -110,5 +115,6 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
   Every catalog artifact pins a publisher SHA-256; the downloader verifies it and deletes a
   mismatched partial file.
 - System-audio loopback is implemented for macOS and type-checks for the Windows target
-  (runtime unverified there). Diarization, mobile capture plumbing, and distribution signing
-  are tracked in M8.12–M8.14 and documented in `docs/external-blockers.md`.
+  (runtime unverified there). Diarization, mobile capture plumbing, and Developer ID
+  notarization remain open; the local packaging path is documented in `docs/packaging.md`
+  and the blockers in `docs/external-blockers.md`.

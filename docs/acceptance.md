@@ -11,13 +11,14 @@ pnpm format:check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-`pnpm test` expands to `pnpm brand:test && pnpm airgap:test && pnpm test:rust`.
+`pnpm test` expands to `pnpm brand:test && pnpm package:test && pnpm airgap:test && pnpm test:rust`.
 
 ## Expected totals
 
 | Suite | Tests | Proves |
 | --- | --- | --- |
-| Brand codegen (`scripts/apply-brand.test.ts`) | 12 | Manifest validation, overlay merge, Tauri/capability output, microphone entitlements, tokens, deterministic artifacts, assets |
+| Brand codegen (`scripts/apply-brand.test.ts`) | 13 | Manifest validation, overlay merge, Tauri/capability output, generated Info.plist, microphone entitlements, tokens, deterministic artifacts, assets |
+| Packaging (`scripts/package-release.test.ts`) | 8 | Artifact discovery/staging, normalized names, SHA-256 output, manifest ordering, bundle lookup, timestamps |
 | Air gap (`scripts/airgap.test.ts`) | 5 | No cloud SDK/endpoints, only allowlisted hosts, strict CSP, no browser network primitives |
 | `memo-audio-capture` | 41 | Ring buffers, mixing, resampling, downmix, level metering, WAV writer/reader, PCM formats |
 | `memo-litert-bridge` | 8 | Framing, size cap, request/response serde, worker timeout/error paths |
@@ -188,6 +189,39 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 `pnpm build` must emit 12 static pages: dashboard, HUD, Model Studio, three meeting studios,
 three synthesis canvases, 404, and the root layout assets.
+
+## M8.14 — packaging and signing
+
+```bash
+pnpm package:release -- --skip-build
+```
+
+Local build evidence (macOS 27.2, arm64):
+
+```text
+Built application at: target/release/use-memo
+Bundling Use Memo.app
+Signing with identity "-"
+Finished 1 bundle at: target/release/bundle/macos/Use Memo.app (8.42 MiB)
+
+codesign --verify --deep --strict  -> valid on disk / satisfies its Designated Requirement
+codesign -d --entitlements         -> com.apple.security.device.audio-input = true
+manifests                          -> ad-hoc, not notarized
+DMG mount + verify                 -> app inside the image is valid and carries the entitlement
+packaged  use-memo_0.1.0_macos_arm64.dmg (4,768,382 bytes)
+sha256    9bdbfdc56228572f4939e319bd87a2e8199a1d55459d3d1c629f0cdc42dc6faa
+shasum -a 256 -c SHA256SUMS.txt    -> OK
+spctl --assess                     -> rejected (expected: no Developer ID / notarization)
+```
+
+The generated `tauri.conf.json` sets `signingIdentity: "-"` so a local build is ad-hoc
+signed with hardened runtime and the audio-input entitlement. Without this, Tauri skips
+signing entirely and the bundle fails `codesign --verify`. `APPLE_SIGNING_IDENTITY`
+overrides the config for Developer ID builds.
+
+Notarization is **not verified**: this host only has an Apple Development certificate.
+`spctl --assess` rejects the ad-hoc app, which is expected. See
+[packaging.md](./packaging.md) for the Developer ID and notarization commands.
 
 ## Manual native smoke test
 

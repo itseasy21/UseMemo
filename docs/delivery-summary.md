@@ -44,13 +44,30 @@ ASR transcript: The quarterly launch review starts on Monday, we decided to dela
 test whisper_transcribes_known_speech_with_timestamps ... ok
 ```
 
+## Packaging slice (M8.14)
+
+| Piece | Result |
+| --- | --- |
+| Branded plist | `Info.plist` is generated from the brand manifest; no reference-brand strings remain in the source template |
+| Local signing | Generated config pins `signingIdentity: "-"`, so Tauri ad-hoc signs with hardened runtime and the audio-input entitlement; `APPLE_SIGNING_IDENTITY` overrides it |
+| Artifacts | `pnpm package:release` stages normalized installers, `SHA256SUMS.txt`, and `release-manifest.json` with brand/version/commit/arch/hashes |
+| macOS evidence | DMG built, mounted, and inspected: `codesign --verify --deep --strict` passes, the audio-input entitlement is present, `shasum -c` passes; `spctl` rejects the ad-hoc app as expected |
+| Local artifact | `use-memo_0.1.0_macos_arm64.dmg`, 4,768,382 bytes, SHA-256 `9bdbfdc56228572f4939e319bd87a2e8199a1d55459d3d1c629f0cdc42dc6faa` |
+| CI | macOS arm64/x86_64, Windows, and Linux matrix workflow committed; not executed here |
+| Updater | In-app updates remain disabled to preserve the air gap; update by replacing the app with a checksum-verified installer |
+
+Notarization is blocked on this host: only an Apple Development certificate is installed, and no
+Apple ID or App Store Connect credentials are available. See
+[packaging.md](./packaging.md) for the Developer ID path.
+
 ## Verification evidence
 
 Final gate run on the recorded host:
 
 ```text
 pnpm brand:check   Brand outputs are current for Use Memo.
-pnpm brand:test    12 passed
+pnpm brand:test    13 passed
+pnpm package:test  8 passed
 pnpm airgap:test   5 passed
 cargo test         41 audio + 8 bridge + 100 host + 3 acceptance (2 gated skip by default)
 MEMO_SYSTEM_AUDIO_E2E=1 ...  skipped: Screen Recording denied to the test process
@@ -61,7 +78,7 @@ cargo fmt --check  clean
 cargo clippy ...   Finished with -D warnings (host + audio crate)
 ```
 
-That is **161 automated checks** (17 TypeScript/Node, 144 Rust), including one gated ASR
+That is **178 automated checks** (26 TypeScript/Node, 152 Rust), including one gated ASR
 acceptance that ran with a real 190 MB Whisper model and produced the transcript above.
 The manual native and browser fallback checklists are in [acceptance.md](./acceptance.md).
 
@@ -115,7 +132,8 @@ Documented in [external-blockers.md](./external-blockers.md):
 - Model weights (not vendored; every catalog digest is pinned).
 - System-audio Windows runtime verification (the WASAPI backend compiles and lints for the
   Windows target but has not run on a Windows host here), diarization, mobile capture
-  plumbing, cross-platform screenshot backends, OCR, and distribution signing.
+  plumbing, cross-platform screenshot backends, OCR, and Developer ID notarization (the
+  packaging and local-signing path is implemented).
 
 ## Reproduce
 

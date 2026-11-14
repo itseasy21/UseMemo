@@ -11,6 +11,7 @@ import {
   renderBrandTs,
   renderCapabilities,
   renderGeneratedBrandRs,
+  renderInfoPlist,
   renderTauriConfig,
   validateManifest,
   type BrandManifest,
@@ -96,14 +97,28 @@ test("generated Tauri config carries identity, HUD window, CSP, and icons", () =
 
 test("macOS bundle declares the microphone entitlement and usage string", () => {
   const config = JSON.parse(renderTauriConfig(base, "0.1.0")) as {
-    bundle: { macOS: { entitlements?: string; minimumSystemVersion?: string } };
+    bundle: {
+      macOS: {
+        entitlements?: string;
+        minimumSystemVersion?: string;
+        signingIdentity?: string;
+        hardenedRuntime?: boolean;
+      };
+    };
   };
   assert.equal(config.bundle.macOS.entitlements, "entitlements.plist");
+  assert.equal(config.bundle.macOS.signingIdentity, "-");
+  assert.equal(config.bundle.macOS.hardenedRuntime, true);
   assert.ok(config.bundle.macOS.minimumSystemVersion);
 
-  const info = fs.readFileSync(`${REPO_ROOT}/frontend/src-tauri/Info.plist`, "utf8");
+  const info = renderInfoPlist(base);
   assert.match(info, /NSMicrophoneUsageDescription/);
   assert.match(info, /Nothing is uploaded/);
+  assert.match(info, /Use Memo records meeting audio/);
+  assert.match(info, /NSHumanReadableCopyright/);
+  // The generated file on disk must match the manifest so `brand:check` catches
+  // a hand-edited plist that would leak the reference brand.
+  assert.equal(fs.readFileSync(`${REPO_ROOT}/frontend/src-tauri/Info.plist`, "utf8"), info);
 
   const entitlements = fs.readFileSync(
     `${REPO_ROOT}/frontend/src-tauri/entitlements.plist`,
@@ -111,6 +126,15 @@ test("macOS bundle declares the microphone entitlement and usage string", () => 
   );
   assert.match(entitlements, /com\.apple\.security\.device\.audio-input/);
   assert.match(entitlements, /<true\/>/);
+});
+
+test("macOS plist follows a rebrand and escapes XML", () => {
+  const rebranded = structuredClone(profile) as BrandManifest;
+  rebranded.productName = "Clinical & Co <Offline>";
+  const info = renderInfoPlist(rebranded);
+  assert.match(info, /Clinical &amp; Co &lt;Offline&gt; records meeting audio/);
+  assert.doesNotMatch(info, /Use Memo/);
+  assert.match(info, /© \d{4} ClinicalScribe Local Cooperative/);
 });
 
 test("brand token CSS uses OKLCH values and Tailwind v4 theme mappings", () => {
@@ -151,6 +175,7 @@ test("codegen emits every required artifact", () => {
   const files = generateTextFiles(profile).map((file) => file.relativePath);
   assert.deepEqual(files, [
     "frontend/src-tauri/tauri.conf.json",
+    "frontend/src-tauri/Info.plist",
     "frontend/src-tauri/capabilities/default.json",
     "frontend/src-tauri/resources/brand.config.json",
     "frontend/src-tauri/src/generated_brand.rs",

@@ -28,7 +28,7 @@ Licensed under **GPL-3.0-or-later**. See [LICENSE](./LICENSE).
 | Microphone capture → WAV → on-device transcription | Working (whisper.cpp; post-recording, block-based) |
 | System-audio loopback | Implemented on macOS (ScreenCaptureKit) with a gated real-capture acceptance; that test skipped on this host because Screen Recording was denied. WASAPI backend type-checks for the Windows target but has not run on a Windows host |
 | Speaker diarization | Not implemented; `You`/`Them` describe the capture channel, not a guessed identity |
-| Signed/notarized distributable | Not produced in this workspace |
+| Signed/notarized distributable | Packaging, checksums, and CI are implemented; notarization is not possible on this host because only an Apple Development certificate is installed |
 
 The browser preview is fully local: it runs the demo vault and never calls a network API.
 Inside Tauri, the same screens call native commands and listen for native events; rejected
@@ -130,6 +130,7 @@ pnpm install
 pnpm brand:check          # generated config/icons/TS/Rust/CSS are current
 pnpm dev                  # browser preview at http://localhost:3000
 pnpm tauri:dev            # native desktop shell
+pnpm package:release      # signed-or-ad-hoc installers + SHA-256 manifest
 ```
 
 The browser build serves the demo vault and is the fastest way to review the UI. Native
@@ -140,6 +141,7 @@ commands are only available inside `pnpm tauri:dev` / `pnpm tauri:build`.
 ```bash
 pnpm brand:check
 pnpm brand:test
+pnpm package:test
 pnpm airgap:test
 pnpm typecheck
 pnpm build
@@ -289,8 +291,13 @@ The protocol and framing limits are documented in
   recordings** on the dashboard.
 - **Screenshot platforms** — system capture is implemented for macOS; other platforms need
   a backend. Tests use the deterministic synthetic backend.
-- **Distribution** — signing, notarization, updater artifacts, and CI packaging are out of
-  scope for this workspace.
+- **Distribution** — `pnpm package:release` builds a DMG/MSI/AppImage-family installer, verifies the
+  macOS signature and audio-input entitlement, and writes `SHA256SUMS.txt` plus
+  `release-manifest.json`. macOS notarization is blocked on this host: only an Apple Development
+  certificate is installed, and notarization requires a Developer ID Application certificate plus
+  Apple credentials. The CI workflow packages all three desktop platforms but has not been executed
+  here. In-app update checks stay disabled to preserve the air gap; see
+  [docs/packaging.md](./docs/packaging.md).
 
 Details and acceptance evidence: [docs/external-blockers.md](./docs/external-blockers.md)
 and [docs/acceptance.md](./docs/acceptance.md).
@@ -302,6 +309,7 @@ and [docs/acceptance.md](./docs/acceptance.md).
 - [White-label and rebranding](./docs/rebranding.md)
 - [Offline policy](./docs/offline-policy.md)
 - [Acceptance and verification](./docs/acceptance.md)
+- [Packaging and release](./docs/packaging.md)
 - [External blockers](./docs/external-blockers.md)
 - [Upstream harvest (read-only analysis)](./docs/upstream-harvest.md)
 

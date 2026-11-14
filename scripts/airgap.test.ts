@@ -71,6 +71,9 @@ const ALLOWED_URL_HOSTS = new Set([
   "127.0.0.1",
   "ipc.localhost",
   "asset.localhost",
+  // The standard XML DTD identifier in the generated macOS Info.plist. It is a
+  // parser declaration, not a runtime request.
+  "www.apple.com",
 ]);
 
 function collectFiles(target: string): string[] {

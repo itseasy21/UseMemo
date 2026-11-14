@@ -129,9 +129,23 @@ existing column. It must remain local and use the existing evidence rules.
 
 ## Distribution and release
 
-**Out of scope.** The bundle is unsigned, not notarized, has no updater artifacts, and has
-no CI packaging. `createUpdaterArtifacts` is false. Signing identities, hardened runtime
-settings, and release channels must be supplied by the deploying organization.
+**Partially blocked.** `pnpm package:release` builds and stages the platform installers,
+verifies the macOS bundle signature and audio-input entitlement, and writes SHA-256
+checksums plus `release-manifest.json`. `tauri.conf.json` pins `signingIdentity: "-"` so
+local builds are valid ad-hoc, hardened-runtime bundles; `APPLE_SIGNING_IDENTITY`
+overrides it for Developer ID builds. `createUpdaterArtifacts` remains false by design,
+so updates are manual, checksum-verified installer replacements.
+
+**Blocked on this host:** notarization. The only installed certificate is
+`Apple Development`, not `Developer ID Application`, and no `APPLE_ID`/`APPLE_PASSWORD`/
+`APPLE_TEAM_ID` or App Store Connect API key is available. The DMG is therefore
+Gatekeeper-rejected until a deploying organization signs and notarizes it. The CI
+workflow is committed but was not executed here; Windows runtime behavior is still
+unverified.
+
+**Unblock:** install a Developer ID Application certificate and Apple notarization
+credentials, then run `pnpm package:release -- --require-signature --require-notarization`.
+See [packaging.md](./packaging.md).
 
 ## Deep-link routing
 
@@ -143,5 +157,6 @@ feature.
 ## Related documents
 
 - [Acceptance and verification](./acceptance.md)
+- [Packaging and release](./packaging.md)
 - [Architecture](./architecture.md)
 - [Upstream harvest](./upstream-harvest.md)
