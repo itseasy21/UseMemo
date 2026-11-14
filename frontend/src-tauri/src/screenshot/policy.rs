@@ -251,6 +251,10 @@ impl CaptureScheduler {
         &self.session
     }
 
+    pub fn session_mut(&mut self) -> &mut CaptureSession {
+        &mut self.session
+    }
+
     pub fn meeting_id(&self) -> &str {
         &self.session.meeting_id
     }
