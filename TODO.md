@@ -77,7 +77,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M7.2 Hallucination acceptance test: `"Bob"` → `"Unassigned"`, `"Next Friday"` → `"Not specified"`
 - [x] M7.3 White-label rebrand acceptance test (secondary profile changes title, storage dir, accents)
 - [x] M7.4 Screenshot/export acceptance test on synthetic 35s session
-- [ ] M7.5 Full test suite + format/lint gate
+- [x] M7.5 Full test suite + format/lint gate
 - [ ] M7.6 Final docs, commit log audit, and branch summary
 
 ## Known external blockers
