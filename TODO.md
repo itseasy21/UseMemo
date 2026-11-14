@@ -70,6 +70,10 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M6.5 View 4: synthesis bento canvas with evidence chips + bidirectional highlight state
 - [x] M6.6 View 5: LiteRT model manager / hardware studio
 - [x] M6.7 UI typecheck + production static build
+- [x] M6.8 Consumer-first home and navigation
+      - One dominant “New recording” action, a resume card, plain-language next steps, and a simplified recent list
+      - Engineering metadata removed from the home screen; the mobile header no longer duplicates the brand mark
+      - Checked in headless Chrome at desktop dark/light and 390 px mobile widths
 
 ## M7 — Verification & delivery
 
