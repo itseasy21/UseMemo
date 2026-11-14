@@ -52,7 +52,7 @@ test whisper_transcribes_known_speech_with_timestamps ... ok
 | Local signing | Generated config pins `signingIdentity: "-"`, so Tauri ad-hoc signs with hardened runtime and the audio-input entitlement; `APPLE_SIGNING_IDENTITY` overrides it |
 | Artifacts | `pnpm package:release` stages normalized installers, `SHA256SUMS.txt`, and `release-manifest.json` with brand/version/commit/arch/hashes |
 | macOS evidence | DMG built, mounted, and inspected: `codesign --verify --deep --strict` passes, the audio-input entitlement is present, `shasum -c` passes; `spctl` rejects the ad-hoc app as expected |
-| Local artifact | `use-memo_0.1.0_macos_arm64.dmg`, 4,768,382 bytes, SHA-256 `9bdbfdc56228572f4939e319bd87a2e8199a1d55459d3d1c629f0cdc42dc6faa` |
+| Local artifact | `use-memo_0.1.0_macos_arm64.dmg`, 4,758,162 bytes, SHA-256 `3d005737e6e94c9bdb555159b504115d339f821c32e38c0c0ca108450da7ebb6` (rebuilt after the consumer UI redesign) |
 | CI | macOS arm64/x86_64, Windows, and Linux matrix workflow committed; not executed here |
 | Updater | In-app updates remain disabled to preserve the air gap; update by replacing the app with a checksum-verified installer |
 

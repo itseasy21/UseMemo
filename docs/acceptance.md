@@ -202,16 +202,19 @@ Local build evidence (macOS 27.2, arm64):
 Built application at: target/release/use-memo
 Bundling Use Memo.app
 Signing with identity "-"
-Finished 1 bundle at: target/release/bundle/macos/Use Memo.app (8.42 MiB)
+Finished 2 bundles at:
+    target/release/bundle/macos/Use Memo.app (8.42 MiB)
+    target/release/bundle/dmg/Use Memo_0.1.0_aarch64.dmg (4.54 MiB)
 
 codesign --verify --deep --strict  -> valid on disk / satisfies its Designated Requirement
 codesign -d --entitlements         -> com.apple.security.device.audio-input = true
 manifests                          -> ad-hoc, not notarized
 DMG mount + verify                 -> app inside the image is valid and carries the entitlement
-packaged  use-memo_0.1.0_macos_arm64.dmg (4,768,382 bytes)
-sha256    9bdbfdc56228572f4939e319bd87a2e8199a1d55459d3d1c629f0cdc42dc6faa
+packaged  use-memo_0.1.0_macos_arm64.dmg (4,758,162 bytes)
+sha256    3d005737e6e94c9bdb555159b504115d339f821c32e38c0c0ca108450da7ebb6
 shasum -a 256 -c SHA256SUMS.txt    -> OK
 spctl --assess                     -> rejected (expected: no Developer ID / notarization)
+launch/quit                        -> packaged app started and exited cleanly
 ```
 
 The generated `tauri.conf.json` sets `signingIdentity: "-"` so a local build is ad-hoc
