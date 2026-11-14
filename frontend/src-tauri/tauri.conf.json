@@ -91,6 +91,10 @@
       "hardenedRuntime": true,
       "entitlements": "entitlements.plist"
     },
+    "iOS": {
+      "minimumSystemVersion": "15.0",
+      "infoPlist": "Info.ios.plist"
+    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

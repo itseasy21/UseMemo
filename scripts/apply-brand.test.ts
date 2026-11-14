@@ -11,6 +11,7 @@ import {
   renderBrandTs,
   renderCapabilities,
   renderGeneratedBrandRs,
+  renderInfoIosPlist,
   renderInfoPlist,
   renderTauriConfig,
   validateManifest,
@@ -137,6 +138,35 @@ test("macOS plist follows a rebrand and escapes XML", () => {
   assert.match(info, /© \d{4} ClinicalScribe Local Cooperative/);
 });
 
+test("iOS bundle declares the microphone usage string and background audio", () => {
+  const config = JSON.parse(renderTauriConfig(base, "0.1.0")) as {
+    bundle: { iOS?: { infoPlist?: string; minimumSystemVersion?: string } };
+  };
+  assert.equal(config.bundle.iOS?.infoPlist, "Info.ios.plist");
+  assert.equal(config.bundle.iOS?.minimumSystemVersion, "15.0");
+
+  const info = renderInfoIosPlist(base);
+  assert.match(info, /NSMicrophoneUsageDescription/);
+  assert.match(info, /Use Memo records meeting audio on this device/);
+  assert.match(info, /Nothing is uploaded/);
+  assert.match(info, /UIBackgroundModes/);
+  assert.match(info, /<string>audio<\/string>/);
+  assert.match(info, /NSHumanReadableCopyright/);
+  assert.equal(
+    fs.readFileSync(`${REPO_ROOT}/frontend/src-tauri/Info.ios.plist`, "utf8"),
+    info,
+  );
+});
+
+test("iOS plist follows a rebrand and escapes XML", () => {
+  const rebranded = structuredClone(profile) as BrandManifest;
+  rebranded.productName = "Clinical & Co <Mobile>";
+  const info = renderInfoIosPlist(rebranded);
+  assert.match(info, /Clinical &amp; Co &lt;Mobile&gt; records meeting audio on this device/);
+  assert.doesNotMatch(info, /Use Memo/);
+  assert.match(info, /© \d{4} ClinicalScribe Local Cooperative/);
+});
+
 test("brand token CSS uses OKLCH values and Tailwind v4 theme mappings", () => {
   const css = renderBrandTokensCss(profile);
   assert.match(css, /--brand-accent-primary: oklch\(0\.48 0\.13 200\)/);
@@ -176,6 +206,7 @@ test("codegen emits every required artifact", () => {
   assert.deepEqual(files, [
     "frontend/src-tauri/tauri.conf.json",
     "frontend/src-tauri/Info.plist",
+    "frontend/src-tauri/Info.ios.plist",
     "frontend/src-tauri/capabilities/default.json",
     "frontend/src-tauri/resources/brand.config.json",
     "frontend/src-tauri/src/generated_brand.rs",
