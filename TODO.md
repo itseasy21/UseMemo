@@ -52,7 +52,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [ ] M4.3 Event contract constants and typed frontend event hooks (`audio:levels`, `asr:segment-delta`, `screenshot:captured`, `synthesis:progress`, `models:download-progress`)
 - [x] M4.4 Screenshot scheduler core (interval, manual snap, single-session capture lease)
 - [x] M4.5 LiteRT model downloader core (resumable, SHA-256 verification) + tests
-- [ ] M4.6 Tauri `cargo check` / unit-test pass on host
+- [x] M4.6 Tauri `cargo check` / unit-test pass on host
 
 ## M5 — LiteRT-LM sidecar bridge
 
