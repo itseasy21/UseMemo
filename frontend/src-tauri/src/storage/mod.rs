@@ -256,9 +256,7 @@ impl Database {
                 "screenshotIntervalSec must be 0 (manual) or between 5 and 3600".into(),
             ));
         }
-        let asr_model_id = input
-            .asr_model_id
-            .unwrap_or_else(|| "parakeet-tdt-0.6b-v3".into());
+        let asr_model_id = input.asr_model_id.unwrap_or_else(|| "whisper-small".into());
         let slm_model_id = input
             .slm_model_id
             .unwrap_or_else(|| "gemma-4-e2b-it".into());
@@ -481,6 +479,80 @@ impl Database {
         .bind(&id)
         .fetch_one(&self.pool)
         .await?)
+    }
+
+    /// Atomically replace every transcript segment for a meeting.
+    ///
+    /// Recognition can fail mid-meeting. Deleting first and inserting as we go
+    /// would destroy the previous good transcript and leave a half-written one;
+    /// a transaction keeps the old rows until the whole run succeeds.
+    pub async fn replace_transcript(
+        &self,
+        meeting_id: &str,
+        segments: Vec<NewTranscriptSegment>,
+    ) -> AppResult<Vec<TranscriptSegment>> {
+        self.get_meeting(meeting_id).await?;
+        for segment in &segments {
+            if !["mic", "system"].contains(&segment.audio_channel.as_str()) {
+                return Err(AppError::Invalid(
+                    "audioChannel must be 'mic' or 'system'".into(),
+                ));
+            }
+        }
+
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM transcript_segments WHERE meeting_id = ?1")
+            .bind(meeting_id)
+            .execute(&mut *tx)
+            .await?;
+
+        let mut stored = Vec::with_capacity(segments.len());
+        for segment in segments {
+            let id = Uuid::now_v7().to_string();
+            sqlx::query(
+                r#"
+                INSERT INTO transcript_segments (
+                    id, meeting_id, seq_no, start_ms, end_ms, speaker_id, speaker_label,
+                    audio_channel, text, is_confirmed
+                ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, ?9)
+                "#,
+            )
+            .bind(&id)
+            .bind(meeting_id)
+            .bind(segment.seq_no)
+            .bind(segment.start_ms)
+            .bind(segment.end_ms)
+            .bind(&segment.speaker_label)
+            .bind(&segment.audio_channel)
+            .bind(&segment.text)
+            .bind(segment.is_confirmed)
+            .execute(&mut *tx)
+            .await?;
+            stored.push(TranscriptSegment {
+                id,
+                meeting_id: meeting_id.to_string(),
+                seq_no: segment.seq_no,
+                start_ms: segment.start_ms,
+                end_ms: segment.end_ms,
+                speaker_id: None,
+                speaker_label: segment.speaker_label,
+                audio_channel: segment.audio_channel,
+                text: segment.text,
+                is_confirmed: segment.is_confirmed,
+            });
+        }
+        tx.commit().await?;
+        Ok(stored)
+    }
+
+    /// Remove every segment for a meeting. Used before a re-transcription so a
+    /// failed run cannot leave a mix of old and new text.
+    pub async fn clear_transcript(&self, meeting_id: &str) -> AppResult<()> {
+        sqlx::query("DELETE FROM transcript_segments WHERE meeting_id = ?1")
+            .bind(meeting_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn list_transcript(&self, meeting_id: &str) -> AppResult<Vec<TranscriptSegment>> {
@@ -912,6 +984,63 @@ mod tests {
             recording_offset_ms: Some(index * 1000),
             linked_screenshot_id: None,
         }
+    }
+
+    fn transcript_seg(seq_no: i64, text: &str) -> NewTranscriptSegment {
+        NewTranscriptSegment {
+            seq_no,
+            start_ms: seq_no * 1_000,
+            end_ms: seq_no * 1_000 + 800,
+            speaker_label: "You".into(),
+            audio_channel: "mic".into(),
+            text: text.into(),
+            is_confirmed: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn replace_transcript_is_atomic_and_ordered() {
+        let db = db().await;
+        let meeting = db
+            .create_meeting(CreateMeetingInput {
+                title: Some("Transcript Swap".into()),
+                screenshot_interval_sec: Some(10),
+                asr_model_id: Some("whisper-small".into()),
+                slm_model_id: Some("gemma-e4b".into()),
+                folder_id: None,
+            })
+            .await
+            .unwrap();
+        db.insert_transcript_segment(&meeting.id, transcript_seg(1, "Original line."))
+            .await
+            .unwrap();
+
+        // A rejected batch must not touch the existing transcript.
+        let mut invalid = transcript_seg(2, "Invalid line.");
+        invalid.audio_channel = "loopback".into();
+        assert!(db
+            .replace_transcript(&meeting.id, vec![invalid])
+            .await
+            .is_err());
+        let rows = db.list_transcript(&meeting.id).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, "Original line.");
+
+        let stored = db
+            .replace_transcript(
+                &meeting.id,
+                vec![transcript_seg(1, "First."), transcript_seg(2, "Second.")],
+            )
+            .await
+            .unwrap();
+        assert_eq!(stored.len(), 2);
+        assert_eq!(stored[0].id.len(), 36);
+
+        let rows = db.list_transcript(&meeting.id).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].text, "First.");
+        assert_eq!(rows[1].seq_no, 2);
+        assert_eq!(rows[1].text, "Second.");
     }
 
     #[tokio::test]

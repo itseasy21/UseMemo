@@ -23,6 +23,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { LocalRecordings } from "@/components/home/LocalRecordings";
 import { AppShell } from "@/components/shell/AppShell";
 import { Avatar, AvatarStack } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -211,7 +212,7 @@ export function Dashboard() {
               <div>
                 <p className="text-[11px] font-medium text-text-primary">Recorder ready</p>
                 <p className="mt-0.5 text-[9.5px] text-text-muted">
-                  CoreAudio · ScreenCaptureKit · 2 channels
+                  CoreAudio microphone · 16 kHz archive
                 </p>
               </div>
               <MiniWaveform seed={12} bars={24} playing className="ml-2 h-5 w-16 opacity-80" />
@@ -354,6 +355,8 @@ export function Dashboard() {
                 <MeetingRow key={meeting.id} meeting={meeting} index={index} />
               ))}
             </section>
+
+            <LocalRecordings />
 
             <section
               aria-labelledby="capture-heading"

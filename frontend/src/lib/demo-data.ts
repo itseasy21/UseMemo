@@ -1098,20 +1098,20 @@ export const DEMO_HARDWARE = {
 
 export const DEMO_MODELS: DemoModel[] = [
   {
-    id: "parakeet-tdt-0.6b-v3",
-    name: "Parakeet TDT 0.6B v3",
+    id: "whisper-small",
+    name: "Whisper Small",
     role: "Speech → text",
     repo: MODEL_REGISTRY.defaultAsrRepo,
     description:
-      "INT8 FastConformer-TDT, 25 languages, native punctuation and timestamps. Kept warm during synthesis.",
+      "Quantized Whisper small, 99 languages, CPU inference through whisper.cpp. Fully on-device.",
     files: [
       {
-        filename: "parakeet_tdt_0.6b_v3_5s_i8_stateful.litertlm",
-        sizeBytes: 644_874_240,
-        sha256: "8f2a7c41d0e9b4a6c3d12f77a91b5e0c4d8a6f3b2c1e9d70a4b8c6f5e2d1a0b9",
+        filename: "ggml-small-q5_1.bin",
+        sizeBytes: 190_085_487,
+        sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
       },
     ],
-    accelerator: "Metal + XNNPACK",
+    accelerator: "CPU · NEON / AVX2",
     minRamGb: 8,
     recommended: true,
     enabled: true,
@@ -1126,12 +1126,12 @@ export const DEMO_MODELS: DemoModel[] = [
     role: "Fallback speech → text",
     repo: MODEL_REGISTRY.fallbackAsrRepo,
     description:
-      "INT8 39M encoder-decoder, 30s windows, ultra-low RAM fallback for constrained hosts.",
+      "Quantized Whisper tiny, 99 languages, ultra-low RAM fallback for constrained hosts.",
     files: [
       {
-        filename: "whisper_tiny_30s_i8.litertlm",
-        sizeBytes: 43_830_477,
-        sha256: "2c97be2a8f0d6e1a3c5b7d9f0e2a4c6b8d1f3a5c7e9b0d2f4a6c8e1b3d5f7091",
+        filename: "ggml-tiny-q5_1.bin",
+        sizeBytes: 32_152_673,
+        sha256: "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7",
       },
     ],
     accelerator: "XNNPACK CPU",
@@ -1181,8 +1181,8 @@ export const DEMO_MODELS: DemoModel[] = [
     files: [
       {
         filename: "gemma-4-E2B-it.litertlm",
-        sizeBytes: 2_600_000_000,
-        sha256: "1d3f5a7c9e0b2d4f6a8c0e1b3d5f7a9c2e4b6d8f0a1c3e5b7d9f2a4c6e8b0d1f",
+        sizeBytes: 2_588_147_712,
+        sha256: "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
       },
     ],
     accelerator: "Metal / Vulkan / XNNPACK",
@@ -1204,8 +1204,8 @@ export const DEMO_MODELS: DemoModel[] = [
     files: [
       {
         filename: "gemma-4-E4B-it.litertlm",
-        sizeBytes: 3_554_007_449,
-        sha256: "6e8b0d2f4a6c1e3b5d7f9a0c2e4b6d8f1a3c5e7b9d0f2a4c6e8b1d3f5a7c9e0b",
+        sizeBytes: 3_659_530_240,
+        sha256: "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
       },
     ],
     accelerator: "Metal / Vulkan / XNNPACK",

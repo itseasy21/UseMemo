@@ -73,6 +73,16 @@ pub async fn append_transcript(
     Ok(segment)
 }
 
+/// Transcribe the meeting's recorded archive with the installed on-device model.
+#[tauri::command]
+pub async fn transcribe_meeting(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> AppResult<crate::asr::TranscriptionOutcome> {
+    crate::asr::transcribe_meeting(&app, &state, &meeting_id).await
+}
+
 #[tauri::command]
 pub async fn list_transcript(
     state: State<'_, AppState>,

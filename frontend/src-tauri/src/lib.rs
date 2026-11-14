@@ -1,3 +1,5 @@
+pub mod asr;
+pub mod audio;
 pub mod brand;
 pub mod commands;
 pub mod error;
@@ -40,6 +42,7 @@ pub fn run() {
             commands::meetings::recording_status,
             commands::notes::save_notes,
             commands::notes::list_notes,
+            commands::transcript::transcribe_meeting,
             commands::transcript::append_transcript,
             commands::transcript::list_transcript,
             commands::transcript::list_speakers,

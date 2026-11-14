@@ -6,6 +6,19 @@ license.workspace = true
 rust-version.workspace = true
 description = "Clean-room dual-stream audio DSP core for Use Memo"
 
+[features]
+default = ["hardware"]
+# Pulls in the platform capture backend. Disable for pure-DSP builds and for
+# hosts that cannot link an audio framework.
+hardware = ["dep:cpal"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+
+[dependencies.cpal]
+version = "0.15.3"
+optional = true
+
+[dev-dependencies]
+serde_json = "1"

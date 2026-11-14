@@ -352,6 +352,9 @@ export function renderTauriConfig(manifest: BrandManifest, version = "0.1.0"): s
       license: manifest.licenseType,
       macOS: {
         minimumSystemVersion: "13.0",
+        // Hardened-runtime microphone access. `Info.plist` next to this config
+        // supplies NSMicrophoneUsageDescription and is merged by Tauri.
+        entitlements: "entitlements.plist",
       },
       windows: {
         webviewInstallMode: { type: "downloadBootstrapper", silent: true },

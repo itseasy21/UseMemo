@@ -6,7 +6,12 @@
  * branching on transport details.
  */
 
-import { invokeCommand, type MeetingRecord, type ScreenshotRecord } from "@/lib/tauri";
+import {
+  invokeCommand,
+  invokeRequired,
+  type MeetingRecord,
+  type ScreenshotRecord,
+} from "@/lib/tauri";
 
 export type { MeetingRecord, ScreenshotRecord };
 
@@ -126,6 +131,15 @@ export type ExportOutcomeRecord = {
   missingImages: string[];
 };
 
+export type TranscriptionOutcomeRecord = {
+  engineId: string;
+  modelId: string;
+  segments: number;
+  blocks: number;
+  skippedBlocks: number;
+  durationMs: number;
+};
+
 export type CreateMeetingPayload = {
   title?: string;
   screenshotIntervalSec?: number;
@@ -172,6 +186,11 @@ export function captureScreenshot(meetingId: string) {
 
 export function listScreenshots(meetingId: string) {
   return invokeCommand<ScreenshotRecord[]>("list_screenshots", { meetingId });
+}
+
+/** Transcribe the meeting's saved audio with the installed on-device model. */
+export function transcribeMeeting(meetingId: string) {
+  return invokeRequired<TranscriptionOutcomeRecord>("transcribe_meeting", { meetingId });
 }
 
 export function listTranscript(meetingId: string) {

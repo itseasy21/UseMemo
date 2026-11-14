@@ -23,7 +23,7 @@ import { Meter } from "@/components/ui/Meter";
 import { Pill } from "@/components/ui/Pill";
 import { Toggle } from "@/components/ui/Toggle";
 import { BRAND } from "@/generated/brand";
-import { useAudioLevels } from "@/hooks/use-host-event";
+import { useAudioLevels, useRecordingStopped } from "@/hooks/use-host-event";
 import { DEMO_MODELS } from "@/lib/demo-data";
 import { formatClock } from "@/lib/format";
 import { createMeeting, startRecording, stopRecording } from "@/lib/host";
@@ -31,24 +31,39 @@ import { isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/stores/workspace";
 
+/**
+ * System-audio loopback and diarization are contract-only in this build. The
+ * toggles stay visible so the roadmap is discoverable, but they are disabled
+ * and labelled rather than pretending to capture something they do not.
+ */
+const SYSTEM_AUDIO_AVAILABLE = false;
+const DIARIZATION_AVAILABLE = false;
+
 const SOURCES = [
   {
     id: "system",
     label: "System audio",
-    detail: "ScreenCaptureKit loopback · 48 kHz",
+    detail: SYSTEM_AUDIO_AVAILABLE
+      ? "ScreenCaptureKit loopback · 48 kHz"
+      : "Not in this build · microphone only",
     icon: MonitorSpeaker,
+    available: SYSTEM_AUDIO_AVAILABLE,
   },
   {
     id: "screenshots",
     label: "Periodic screenshots",
     detail: `${BRAND.features.defaultScreenshotIntervalSec}s cadence · dHash dedupe`,
     icon: Camera,
+    available: true,
   },
   {
     id: "diarize",
     label: "Speaker diarization",
-    detail: "Voiceprints stay in the vault",
+    detail: DIARIZATION_AVAILABLE
+      ? "Voiceprints stay in the vault"
+      : "Not in this build · single label per channel",
     icon: Users,
+    available: DIARIZATION_AVAILABLE,
   },
 ] as const;
 
@@ -64,14 +79,15 @@ export function NewRecordingDialog() {
   const [starting, setStarting] = useState(false);
   const [meetingId, setMeetingId] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [micLevel, setMicLevel] = useState(0.42);
-  const [sysLevel, setSysLevel] = useState(0.24);
+  const [micLevel, setMicLevel] = useState(0);
+  const [noSignal, setNoSignal] = useState(false);
   const [sources, setSources] = useState<Record<SourceId, boolean>>({
-    system: true,
+    system: SYSTEM_AUDIO_AVAILABLE,
     screenshots: true,
-    diarize: true,
+    diarize: DIARIZATION_AVAILABLE,
   });
   const attemptRef = useRef(0);
+  const peakMicRef = useRef(0);
 
   const installedAsr = useMemo(
     () =>
@@ -90,6 +106,8 @@ export function NewRecordingDialog() {
       setStarting(false);
       setMeetingId(null);
       setElapsedMs(0);
+      setNoSignal(false);
+      peakMicRef.current = 0;
     }
   }, [open]);
 
@@ -99,15 +117,14 @@ export function NewRecordingDialog() {
     return () => window.clearInterval(timer);
   }, [open, started]);
 
-  // In the browser preview the meters animate locally. Inside Tauri the
-  // `audio:levels` host event drives them instead.
+  // In the browser preview the meter animates locally. Inside Tauri the
+  // `audio:levels` host event drives it from the real capture thread.
   useEffect(() => {
     if (!started || !open || meetingId) return;
     let frame = 0;
     const timer = window.setInterval(() => {
       frame += 1;
       setMicLevel(0.34 + Math.abs(Math.sin(frame * 0.72)) * 0.48);
-      setSysLevel(0.18 + Math.abs(Math.sin(frame * 0.41 + 1.8)) * 0.36);
     }, 140);
     return () => window.clearInterval(timer);
   }, [meetingId, open, started]);
@@ -116,11 +133,45 @@ export function NewRecordingDialog() {
     (payload) => {
       if (!meetingId || payload.meetingId !== meetingId) return;
       const level = Math.max(0, Math.min(1, (payload.rmsDbfs + 60) / 60));
-      if (payload.channel === "system") setSysLevel(level);
-      else setMicLevel(level);
+      setMicLevel(level);
     },
     started && Boolean(meetingId),
   );
+
+  useEffect(() => {
+    if (micLevel > peakMicRef.current) peakMicRef.current = micLevel;
+  }, [micLevel]);
+
+  // A denied macOS microphone permission yields a running stream of silence
+  // rather than an error, so the UI has to call it out explicitly.
+  useEffect(() => {
+    if (!started || !meetingId) {
+      setNoSignal(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setNoSignal(peakMicRef.current < 0.02), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [meetingId, started]);
+
+  useRecordingStopped((payload) => {
+    if (payload.error) {
+      pushToast("Audio capture failed to finalize", payload.error, "danger");
+      return;
+    }
+    if (payload.silent) {
+      pushToast(
+        "No microphone audio was captured",
+        "Enable microphone access in System Settings → Privacy & Security, then record again.",
+        "danger",
+      );
+    } else if (payload.droppedBlocks > 0) {
+      pushToast(
+        "The audio buffer overran",
+        `${payload.droppedBlocks} blocks were dropped. The take may have small gaps.`,
+        "accent",
+      );
+    }
+  });
 
   const toggleSource = (source: SourceId) => {
     setSources((current) => ({ ...current, [source]: !current[source] }));
@@ -276,26 +327,30 @@ export function NewRecordingDialog() {
                 <span className="tabular">{Math.round(micLevel * 100)}%</span>
               </div>
               <Meter value={micLevel} label="Microphone input level" />
+              {noSignal ? (
+                <p className="mt-2 text-[10px] leading-4 text-amber-600 dark:text-amber-300">
+                  No signal yet. Check System Settings → Privacy &amp; Security → Microphone.
+                </p>
+              ) : null}
             </div>
-            <div className="rounded-brand border border-border-subtle bg-bg-primary/35 p-3">
+            <div className="rounded-brand border border-dashed border-border-subtle bg-bg-primary/20 p-3">
               <div className="mb-2 flex items-center justify-between text-[10px] font-medium text-text-muted">
                 <span className="flex items-center gap-1.5">
                   <AudioLines className="size-3 text-accent-secondary" /> System · Remote
                 </span>
-                <span className="tabular">{Math.round(sysLevel * 100)}%</span>
+                <span className="tabular">off</span>
               </div>
-              <Meter
-                value={sysLevel}
-                label="System audio input level"
-                color="var(--brand-accent-secondary)"
-              />
+              <p className="text-[10px] leading-4 text-text-muted">
+                System audio is not captured in this build. Put the call on speaker, or join from a
+                second device.
+              </p>
             </div>
           </div>
 
           <div className="rounded-brand border border-border-subtle bg-bg-primary/35 p-3">
             <div className="flex flex-wrap items-center gap-2 text-[10px] text-text-muted">
               <Pill tone="accent" icon={<Check className="size-2.5" />}>
-                {sources.system ? "System audio on" : "Mic only"}
+                Microphone only
               </Pill>
               <Pill tone={sources.screenshots ? "secondary" : "outline"}>
                 Screenshots{" "}
@@ -308,9 +363,9 @@ export function NewRecordingDialog() {
               <Pill tone="neutral">{installedSlm?.name ?? "Local SLM"}</Pill>
             </div>
             <p className="mt-2 text-[10.5px] leading-5 text-text-muted">
-              A new segment is committed to the transcript every ~640 ms. Screenshots are deduped
-              before they touch the vault. The detached HUD stays available while the main window is
-              hidden.
+              Audio streams to a 16 kHz mono WAV in the vault while you record, and the header is
+              patched on stop so an interrupted take stays playable. Screenshots are deduped before
+              they are written.
             </p>
           </div>
         </div>
@@ -376,12 +431,16 @@ export function NewRecordingDialog() {
                     <p className="text-xs font-medium text-text-primary">{source.label}</p>
                     <p className="truncate text-[10px] text-text-muted">{source.detail}</p>
                   </div>
-                  <Toggle
-                    checked={sources[source.id]}
-                    onChange={() => toggleSource(source.id)}
-                    label={`Toggle ${source.label}`}
-                    size="sm"
-                  />
+                  {source.available ? (
+                    <Toggle
+                      checked={sources[source.id]}
+                      onChange={() => toggleSource(source.id)}
+                      label={`Toggle ${source.label}`}
+                      size="sm"
+                    />
+                  ) : (
+                    <Pill tone="outline">Planned</Pill>
+                  )}
                 </div>
               );
             })}

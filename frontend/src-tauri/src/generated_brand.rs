@@ -49,8 +49,8 @@ pub const THEME_LIGHT: &[(&str, &str)] = &[
 ];
 
 pub const HF_BASE_URL: &str = "https://huggingface.co";
-pub const DEFAULT_ASR_REPO: &str = "litert-community/parakeet-tdt-0.6b-v3";
-pub const FALLBACK_ASR_REPO: &str = "litert-community/whisper-tiny";
+pub const DEFAULT_ASR_REPO: &str = "ggerganov/whisper.cpp";
+pub const FALLBACK_ASR_REPO: &str = "ggerganov/whisper.cpp";
 pub const DIARIZATION_REPO: &str = "litert-community/Speaker-Diarization-LiteRT";
 pub const DEFAULT_SLM_REPO: &str = "litert-community/gemma-4-E2B-it-litert-lm";
 pub const PRO_SLM_REPO: &str = "litert-community/gemma-4-E4B-it-litert-lm";

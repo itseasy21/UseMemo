@@ -184,13 +184,12 @@ impl ModelDownloader {
             .await
             .map_err(|error| AppError::Download(format!("hash task failed: {error}")))??;
 
-        if let Some(expected) = file.sha256.as_deref() {
-            if !expected.eq_ignore_ascii_case(&digest) {
-                let _ = fs::remove_file(&part);
-                return Err(AppError::Download(format!(
-                    "SHA-256 mismatch for {filename}: expected {expected}, got {digest}"
-                )));
-            }
+        if !file.sha256.eq_ignore_ascii_case(&digest) {
+            let _ = fs::remove_file(&part);
+            return Err(AppError::Download(format!(
+                "SHA-256 mismatch for {filename}: expected {}, got {digest}",
+                file.sha256
+            )));
         }
         if destination.exists() {
             fs::remove_file(&destination)?;
@@ -292,7 +291,7 @@ mod tests {
     use std::io::Write as _;
     use std::net::TcpListener;
 
-    fn artifact(size: u64, sha: Option<String>) -> ModelArtifact {
+    fn artifact(size: u64, sha: String) -> ModelArtifact {
         ModelArtifact {
             id: "test-model".into(),
             role: ModelRole::Asr,
@@ -351,7 +350,7 @@ mod tests {
         let (base, server) = serve_once(body.clone(), 0);
         let dir = tempfile::tempdir().unwrap();
         let downloader = ModelDownloader::new(base, dir.path()).unwrap();
-        let artifact = artifact(body.len() as u64, Some(sha256_bytes(&body)));
+        let artifact = artifact(body.len() as u64, sha256_bytes(&body));
         let mut phases = Vec::new();
         let report = downloader
             .download(&artifact, &artifact.files[0], |update| {
@@ -375,7 +374,7 @@ mod tests {
         let resume_from = 12 * 1024;
         let (base, server) = serve_once(body.clone(), resume_from);
         let dir = tempfile::tempdir().unwrap();
-        let artifact = artifact(body.len() as u64, Some(sha256_bytes(&body)));
+        let artifact = artifact(body.len() as u64, sha256_bytes(&body));
         let destination = artifact.local_path(dir.path(), "weights.bin");
         fs::create_dir_all(destination.parent().unwrap()).unwrap();
         fs::write(partial_path(&destination), &body[..resume_from]).unwrap();
@@ -395,7 +394,7 @@ mod tests {
         let body = vec![3u8; 8 * 1024];
         let (base, server) = serve_once(body.clone(), 0);
         let dir = tempfile::tempdir().unwrap();
-        let artifact = artifact(body.len() as u64, Some("00".repeat(32)));
+        let artifact = artifact(body.len() as u64, "00".repeat(32));
         let downloader = ModelDownloader::new(base, dir.path()).unwrap();
         let error = downloader
             .download(&artifact, &artifact.files[0], |_| {})
@@ -426,7 +425,7 @@ mod tests {
     #[tokio::test]
     async fn refuses_path_traversal_filenames() {
         let dir = tempfile::tempdir().unwrap();
-        let mut model = artifact(1, None);
+        let mut model = artifact(1, "11".repeat(32));
         model.files[0].filename = "../escape.bin".into();
         let downloader = ModelDownloader::new("https://example.com", dir.path()).unwrap();
         let error = downloader

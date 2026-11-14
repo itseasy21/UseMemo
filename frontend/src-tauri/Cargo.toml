@@ -14,6 +14,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+default = ["asr"]
+# Bundled whisper.cpp inference for on-device transcription.
+asr = ["dep:whisper-rs"]
+
 [dependencies]
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -22,6 +27,7 @@ futures-util = "0.3"
 hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 memo-litert-bridge = { path = "../../crates/memo-litert-bridge" }
+memo-audio-capture = { path = "../../crates/memo-audio-capture" }
 libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1", features = ["derive"] }
@@ -34,7 +40,9 @@ thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 uuid = { version = "1", features = ["serde", "v7"] }
 webp = "0.3"
+whisper-rs = { version = "0.16", optional = true }
 
 [dev-dependencies]
+memo-audio-capture = { path = "../../crates/memo-audio-capture" }
 tempfile = "3"
 

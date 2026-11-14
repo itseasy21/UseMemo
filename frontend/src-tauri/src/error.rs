@@ -28,6 +28,8 @@ pub enum AppError {
     Download(String),
     #[error("capture error: {0}")]
     Capture(String),
+    #[error("speech recognition error: {0}")]
+    Asr(String),
 }
 
 pub type AppResult<T> = Result<T, AppError>;

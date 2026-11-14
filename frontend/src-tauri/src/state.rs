@@ -40,6 +40,8 @@ pub struct RecordingSnapshot {
     pub meeting_id: String,
     pub started_at_ms: i64,
     pub interval_sec: i64,
+    pub mic_device: Option<String>,
+    pub mic_sample_rate: Option<u32>,
 }
 
 pub struct RecordingRuntime {
@@ -48,6 +50,7 @@ pub struct RecordingRuntime {
     pub interval_sec: i64,
     pub cancel: watch::Sender<bool>,
     pub scheduler: Arc<Mutex<CaptureScheduler>>,
+    pub audio: Option<crate::audio::AudioCaptureSession>,
 }
 
 impl RecordingRuntime {
@@ -56,6 +59,11 @@ impl RecordingRuntime {
             meeting_id: self.meeting_id.clone(),
             started_at_ms: self.started_at_ms,
             interval_sec: self.interval_sec,
+            mic_device: self
+                .audio
+                .as_ref()
+                .map(|audio| audio.info().device_name.clone()),
+            mic_sample_rate: self.audio.as_ref().map(|audio| audio.info().sample_rate),
         }
     }
 }
@@ -70,6 +78,13 @@ pub struct AppState {
     pub synthesis: Arc<dyn SynthesisEngine>,
     pub capture_lease: CaptureLease,
     pub recording: Mutex<Option<RecordingRuntime>>,
+    /// Only one transcription runs at a time. whisper.cpp is CPU-bound, and two
+    /// concurrent runs would just fight for the same cores while doubling the
+    /// memory footprint of the model.
+    pub transcribing: Mutex<()>,
+    /// Loaded ASR engine, keyed by the model id it was loaded from, so a second
+    /// meeting does not pay the model load cost again.
+    pub asr: Mutex<Option<(String, Arc<dyn crate::asr::AsrEngine>)>>,
 }
 
 impl AppState {
@@ -96,6 +111,8 @@ impl AppState {
             synthesis,
             capture_lease: CaptureLease::new(),
             recording: Mutex::new(None),
+            transcribing: Mutex::new(()),
+            asr: Mutex::new(None),
         })
     }
 

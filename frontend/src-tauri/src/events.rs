@@ -13,18 +13,22 @@ use crate::storage::{Meeting, Screenshot};
 
 pub const AUDIO_LEVELS: &str = "audio:levels";
 pub const ASR_SEGMENT_DELTA: &str = "asr:segment-delta";
+pub const ASR_PROGRESS: &str = "asr:progress";
 pub const SCREENSHOT_CAPTURED: &str = "screenshot:captured";
 pub const SYNTHESIS_PROGRESS: &str = "synthesis:progress";
 pub const MODELS_DOWNLOAD_PROGRESS: &str = "models:download-progress";
 pub const MEETING_CHANGED: &str = "meeting:changed";
+pub const RECORDING_STOPPED: &str = "recording:stopped";
 
 pub const ALL: &[&str] = &[
     AUDIO_LEVELS,
     ASR_SEGMENT_DELTA,
+    ASR_PROGRESS,
     SCREENSHOT_CAPTURED,
     SYNTHESIS_PROGRESS,
     MODELS_DOWNLOAD_PROGRESS,
     MEETING_CHANGED,
+    RECORDING_STOPPED,
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,6 +55,17 @@ pub struct AsrSegmentDeltaPayload {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AsrProgressPayload {
+    pub meeting_id: String,
+    pub stage: String,
+    pub percent: f32,
+    pub segments: usize,
+    pub processed_ms: i64,
+    pub total_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScreenshotCapturedPayload {
     pub meeting_id: String,
     pub screenshot: Option<Screenshot>,
@@ -71,6 +86,21 @@ pub struct SynthesisProgressPayload {
 #[serde(rename_all = "camelCase")]
 pub struct MeetingChangedPayload {
     pub meeting: Meeting,
+}
+
+/// Emitted when a take is finalized. Carries the facts the UI needs to tell the
+/// user whether the recording is actually usable, which the `Meeting` row alone
+/// cannot express.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingStoppedPayload {
+    pub meeting_id: String,
+    pub duration_ms: i64,
+    pub path: Option<String>,
+    pub silent: bool,
+    pub dropped_blocks: u64,
+    pub peak_dbfs: f32,
+    pub error: Option<String>,
 }
 
 impl ScreenshotCapturedPayload {
@@ -123,10 +153,12 @@ mod tests {
     fn event_names_are_stable_and_unique() {
         assert_eq!(AUDIO_LEVELS, "audio:levels");
         assert_eq!(ASR_SEGMENT_DELTA, "asr:segment-delta");
+        assert_eq!(ASR_PROGRESS, "asr:progress");
         assert_eq!(SCREENSHOT_CAPTURED, "screenshot:captured");
         assert_eq!(SYNTHESIS_PROGRESS, "synthesis:progress");
         assert_eq!(MODELS_DOWNLOAD_PROGRESS, "models:download-progress");
         assert_eq!(MEETING_CHANGED, "meeting:changed");
+        assert_eq!(RECORDING_STOPPED, "recording:stopped");
         let unique: std::collections::BTreeSet<&str> = ALL.iter().copied().collect();
         assert_eq!(unique.len(), ALL.len());
         assert!(ALL.iter().all(|name| name.contains(':')));

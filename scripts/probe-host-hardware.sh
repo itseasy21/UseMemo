@@ -74,21 +74,20 @@ elif awk -v gb="$RAM_GB" 'BEGIN { exit !(gb >= 8) }'; then
   TIER_REASON="8–15.9 GB RAM"
 fi
 
-ASR_REPO="litert-community/whisper-tiny"
-ASR_FILE="whisper_tiny_30s_i8.litertlm"
-ASR_BYTES=43830477
+ASR_REPO="ggerganov/whisper.cpp"
+ASR_FILE="ggml-tiny-q5_1.bin"
+ASR_BYTES=32152673
 SLM_REPO="litert-community/gemma-4-E2B-it-litert-lm"
 SLM_FILE="gemma-4-E2B-it.litertlm"
-SLM_BYTES=2770255085
+SLM_BYTES=2588147712
 if [[ "$TIER" == "mid" || "$TIER" == "high" ]]; then
-  ASR_REPO="litert-community/parakeet-tdt-0.6b-v3"
-  ASR_FILE="parakeet_tdt_0.6b_v3_5s_i8_stateful.litertlm"
-  ASR_BYTES=644874240
+  ASR_FILE="ggml-small-q5_1.bin"
+  ASR_BYTES=190085487
 fi
 if [[ "$TIER" == "high" ]]; then
   SLM_REPO="litert-community/gemma-4-E4B-it-litert-lm"
   SLM_FILE="gemma-4-E4B-it.litertlm"
-  SLM_BYTES=3554007449
+  SLM_BYTES=3659530240
 fi
 
 KEEP_ASR_WARM="false"

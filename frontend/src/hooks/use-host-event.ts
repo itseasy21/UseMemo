@@ -5,11 +5,13 @@ import { useEffect, useRef } from "react";
 import {
   HOST_EVENTS,
   listenEvent,
+  type AsrProgressPayload,
   type AsrSegmentDeltaPayload,
   type AudioLevelsPayload,
   type HostEventMap,
   type MeetingChangedPayload,
   type ModelDownloadProgressPayload,
+  type RecordingStoppedPayload,
   type ScreenshotCapturedPayload,
   type SynthesisProgressPayload,
   type UnlistenFn,
@@ -65,11 +67,22 @@ export function useAsrSegmentDeltas(
   useHostEvent(HOST_EVENTS.asrSegmentDelta, handler, enabled);
 }
 
+export function useAsrProgress(handler: (payload: AsrProgressPayload) => void, enabled = true) {
+  useHostEvent(HOST_EVENTS.asrProgress, handler, enabled);
+}
+
 export function useScreenshotCaptured(
   handler: (payload: ScreenshotCapturedPayload) => void,
   enabled = true,
 ) {
   useHostEvent(HOST_EVENTS.screenshotCaptured, handler, enabled);
+}
+
+export function useRecordingStopped(
+  handler: (payload: RecordingStoppedPayload) => void,
+  enabled = true,
+) {
+  useHostEvent(HOST_EVENTS.recordingStopped, handler, enabled);
 }
 
 export function useSynthesisProgress(

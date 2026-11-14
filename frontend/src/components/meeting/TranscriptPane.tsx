@@ -234,7 +234,7 @@ export function TranscriptPane({
     <div className="flex min-h-0 flex-1 flex-col bg-bg-primary">
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border-subtle px-3.5 text-[9px] text-text-muted">
         <Radio className="size-2.5" />
-        <span className="font-medium text-text-primary">Diarized stream</span>
+        <span className="font-medium text-text-primary">Transcript</span>
         <span className="text-border-subtle">·</span>
         <span>{meeting.transcripts.length} segments · 3 speakers</span>
         <button
@@ -272,8 +272,8 @@ export function TranscriptPane({
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-recording-pulse opacity-40" />
             <span className="relative inline-flex size-1.5 rounded-full bg-recording-pulse" />
           </span>
-          ASR listening · local 640 ms window
-          {live ? " · live segment above" : ""}
+          Demo transcript · on-device ASR runs after a recording
+          {live ? " · preview segment above" : ""}
           {hoveredId ? "" : ""}
         </div>
       </div>

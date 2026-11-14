@@ -86,7 +86,8 @@
     "copyright": "© 2026 Use Memo Project (GNU GPLv3)",
     "license": "GPL-3.0-or-later",
     "macOS": {
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "entitlements": "entitlements.plist"
     },
     "windows": {
       "webviewInstallMode": {

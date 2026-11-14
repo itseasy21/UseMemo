@@ -44,14 +44,14 @@
     "tier": "high",
     "reason": ">= 16 GB RAM",
     "asr": {
-      "repo": "litert-community/parakeet-tdt-0.6b-v3",
-      "filename": "parakeet_tdt_0.6b_v3_5s_i8_stateful.litertlm",
-      "downloadBytes": 644874240
+      "repo": "ggerganov/whisper.cpp",
+      "filename": "ggml-small-q5_1.bin",
+      "downloadBytes": 190085487
     },
     "slm": {
       "repo": "litert-community/gemma-4-E4B-it-litert-lm",
       "filename": "gemma-4-E4B-it.litertlm",
-      "downloadBytes": 3554007449
+      "downloadBytes": 3659530240
     },
     "keepAsrWarmDuringSynthesis": true
   }

@@ -55,6 +55,17 @@ export type SynthesisProgressPayload = {
   message: string | null;
 };
 
+/** Progress of a post-recording transcription run. Stages: `loading`,
+ * `transcribing`, `complete`, `failed`. */
+export type AsrProgressPayload = {
+  meetingId: string;
+  stage: string;
+  percent: number;
+  segments: number;
+  processedMs: number;
+  totalMs: number;
+};
+
 export type MeetingRecord = {
   id: string;
   title: string;
@@ -75,6 +86,17 @@ export type MeetingChangedPayload = {
   meeting: MeetingRecord;
 };
 
+/** Emitted when a take is finalized, with facts the meeting row cannot carry. */
+export type RecordingStoppedPayload = {
+  meetingId: string;
+  durationMs: number;
+  path: string | null;
+  silent: boolean;
+  droppedBlocks: number;
+  peakDbfs: number;
+  error: string | null;
+};
+
 export type DownloadPhase = "downloading" | "verifying" | "complete";
 
 export type ModelDownloadProgressPayload = {
@@ -89,19 +111,23 @@ export type ModelDownloadProgressPayload = {
 export type HostEventMap = {
   "audio:levels": AudioLevelsPayload;
   "asr:segment-delta": AsrSegmentDeltaPayload;
+  "asr:progress": AsrProgressPayload;
   "screenshot:captured": ScreenshotCapturedPayload;
   "synthesis:progress": SynthesisProgressPayload;
   "models:download-progress": ModelDownloadProgressPayload;
   "meeting:changed": MeetingChangedPayload;
+  "recording:stopped": RecordingStoppedPayload;
 };
 
 export const HOST_EVENTS = {
   audioLevels: "audio:levels",
   asrSegmentDelta: "asr:segment-delta",
+  asrProgress: "asr:progress",
   screenshotCaptured: "screenshot:captured",
   synthesisProgress: "synthesis:progress",
   modelDownloadProgress: "models:download-progress",
   meetingChanged: "meeting:changed",
+  recordingStopped: "recording:stopped",
 } as const satisfies Record<string, keyof HostEventMap>;
 
 export type UnlistenFn = () => void;
@@ -129,6 +155,21 @@ export async function invokeCommand<T>(
     console.warn(`[memo] invoke("${command}") failed`, error);
     return null;
   }
+}
+
+/**
+ * Invoke a host command and preserve the host error message.
+ *
+ * `invokeCommand` intentionally swallows transport failures so the demo UI can
+ * fall back to local data. User-triggered work (transcription, downloads) needs
+ * the real reason, so it uses this instead.
+ */
+export async function invokeRequired<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(command, args);
 }
 
 /**

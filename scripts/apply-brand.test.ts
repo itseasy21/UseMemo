@@ -94,6 +94,25 @@ test("generated Tauri config carries identity, HUD window, CSP, and icons", () =
   assert.deepEqual(config.plugins["deep-link"].desktop.schemes, ["clinicalscribe"]);
 });
 
+test("macOS bundle declares the microphone entitlement and usage string", () => {
+  const config = JSON.parse(renderTauriConfig(base, "0.1.0")) as {
+    bundle: { macOS: { entitlements?: string; minimumSystemVersion?: string } };
+  };
+  assert.equal(config.bundle.macOS.entitlements, "entitlements.plist");
+  assert.ok(config.bundle.macOS.minimumSystemVersion);
+
+  const info = fs.readFileSync(`${REPO_ROOT}/frontend/src-tauri/Info.plist`, "utf8");
+  assert.match(info, /NSMicrophoneUsageDescription/);
+  assert.match(info, /Nothing is uploaded/);
+
+  const entitlements = fs.readFileSync(
+    `${REPO_ROOT}/frontend/src-tauri/entitlements.plist`,
+    "utf8",
+  );
+  assert.match(entitlements, /com\.apple\.security\.device\.audio-input/);
+  assert.match(entitlements, /<true\/>/);
+});
+
 test("brand token CSS uses OKLCH values and Tailwind v4 theme mappings", () => {
   const css = renderBrandTokensCss(profile);
   assert.match(css, /--brand-accent-primary: oklch\(0\.48 0\.13 200\)/);

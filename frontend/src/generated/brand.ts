@@ -60,8 +60,8 @@ export const BRAND = {
     },
     "modelRegistry": {
       "hfBaseUrl": "https://huggingface.co",
-      "defaultAsrRepo": "litert-community/parakeet-tdt-0.6b-v3",
-      "fallbackAsrRepo": "litert-community/whisper-tiny",
+      "defaultAsrRepo": "ggerganov/whisper.cpp",
+      "fallbackAsrRepo": "ggerganov/whisper.cpp",
       "diarizationRepo": "litert-community/Speaker-Diarization-LiteRT",
       "defaultSlmRepo": "litert-community/gemma-4-E2B-it-litert-lm",
       "proSlmRepo": "litert-community/gemma-4-E4B-it-litert-lm"

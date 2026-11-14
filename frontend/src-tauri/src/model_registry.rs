@@ -130,7 +130,10 @@ pub enum ModelRole {
 pub struct ModelFile {
     pub filename: String,
     pub size_bytes: u64,
-    pub sha256: Option<String>,
+    /// Pinned digest from the publisher. Every artifact must carry one: an
+    /// unpinned model download is a supply-chain hole, so the type makes it
+    /// unrepresentable rather than optional.
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,101 +178,78 @@ impl ModelArtifact {
     }
 }
 
-pub fn parakeet() -> ModelFile {
+pub fn whisper_small() -> ModelFile {
     ModelFile {
-        filename: "parakeet_tdt_0.6b_v3_5s_i8_stateful.litertlm".into(),
-        size_bytes: 615 * 1024 * 1024,
-        sha256: None,
+        filename: "ggml-small-q5_1.bin".into(),
+        size_bytes: 190_085_487,
+        sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb".into(),
     }
 }
 
 pub fn whisper_tiny() -> ModelFile {
     ModelFile {
-        filename: "whisper_tiny_30s_i8.litertlm".into(),
-        size_bytes: 43_830_477,
-        sha256: None,
-    }
-}
-
-pub fn diarization_segmentation() -> ModelFile {
-    ModelFile {
-        filename: "pyannote_seg30.onnx".into(),
-        size_bytes: 6_207_569,
-        sha256: None,
-    }
-}
-
-pub fn speaker_embedding() -> ModelFile {
-    ModelFile {
-        filename: "wespeaker_emb_fp16.tflite".into(),
-        size_bytes: 14_050_918,
-        sha256: None,
+        filename: "ggml-tiny-q5_1.bin".into(),
+        size_bytes: 32_152_673,
+        sha256: "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7".into(),
     }
 }
 
 pub fn gemma_e2b() -> ModelFile {
     ModelFile {
         filename: "gemma-4-E2B-it.litertlm".into(),
-        size_bytes: 2_600_000_000,
-        sha256: None,
+        size_bytes: 2_588_147_712,
+        sha256: "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c".into(),
     }
 }
 
 pub fn gemma_e4b() -> ModelFile {
     ModelFile {
         filename: "gemma-4-E4B-it.litertlm".into(),
-        size_bytes: 3_554_007_449,
-        sha256: None,
+        size_bytes: 3_659_530_240,
+        sha256: "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0".into(),
     }
 }
 
-/// Full catalog for the model hub. Sizes are approximate download sizes used for
-/// preflight checks; exact hashes are populated by the Hugging Face manifest when
-/// available, otherwise the downloader records the observed digest.
+/// Full catalog for the model hub. Every file pins the publisher's size and
+/// SHA-256; an unpinned artifact cannot be represented, so a download either
+/// matches the publisher bytes exactly or fails. Recommendation follows the
+/// hardware tier, not repo equality.
 pub fn catalog(registry: &ModelRegistry, hardware: &HardwareProfile) -> Vec<ModelArtifact> {
+    // Recommendation follows the role that the tier selects, not repo equality:
+    // both Whisper artifacts live in `ggerganov/whisper.cpp`, so comparing repos
+    // would mark the tiny and small model as recommended on every host.
     let recommended_slm = if hardware.tier == HardwareTier::High {
-        registry.pro_slm_repo.clone()
+        ModelRole::ProSlm
     } else {
-        registry.default_slm_repo.clone()
+        ModelRole::Slm
     };
     let recommended_asr = if hardware.tier == HardwareTier::Low {
-        registry.fallback_asr_repo.clone()
+        ModelRole::FallbackAsr
     } else {
-        registry.default_asr_repo.clone()
+        ModelRole::Asr
     };
 
     vec![
         ModelArtifact {
-            id: "parakeet-tdt-0.6b-v3".into(),
+            id: "whisper-small".into(),
             role: ModelRole::Asr,
             repo: registry.default_asr_repo.clone(),
-            files: vec![parakeet()],
-            description: "INT8 FastConformer-TDT, 25 languages, native punctuation and timestamps"
+            files: vec![whisper_small()],
+            description: "Quantized Whisper small, 99 languages, CPU inference via whisper.cpp"
                 .into(),
             min_ram_gb: 8,
-            recommended: recommended_asr == registry.default_asr_repo,
-            accelerator: "XNNPACK CPU / GPU".into(),
+            recommended: recommended_asr == ModelRole::Asr,
+            accelerator: "CPU · NEON / AVX2".into(),
         },
         ModelArtifact {
             id: "whisper-tiny".into(),
             role: ModelRole::FallbackAsr,
             repo: registry.fallback_asr_repo.clone(),
             files: vec![whisper_tiny()],
-            description: "INT8 39M encoder-decoder, 30s windows, ultra-low RAM fallback".into(),
+            description: "Quantized Whisper tiny, 99 languages, ultra-low-RAM fallback".into(),
             min_ram_gb: 4,
-            recommended: recommended_asr == registry.fallback_asr_repo,
-            accelerator: "XNNPACK CPU".into(),
-        },
-        ModelArtifact {
-            id: "speaker-diarization-lite".into(),
-            role: ModelRole::DiarizationSegmentation,
-            repo: registry.diarization_repo.clone(),
-            files: vec![diarization_segmentation(), speaker_embedding()],
-            description: "pyannote 30s segmentation + WeSpeaker FP16 256-dim speaker embeddings"
-                .into(),
-            min_ram_gb: 4,
-            recommended: true,
-            accelerator: "XNNPACK CPU".into(),
+            recommended: recommended_asr == ModelRole::FallbackAsr,
+            accelerator: "CPU · NEON / AVX2".into(),
         },
         ModelArtifact {
             id: "gemma-4-e2b-it".into(),
@@ -279,7 +259,7 @@ pub fn catalog(registry: &ModelRegistry, hardware: &HardwareProfile) -> Vec<Mode
             description: "QAT INT4, 32k context, text + vision synthesis for 8-15 GB systems"
                 .into(),
             min_ram_gb: 8,
-            recommended: recommended_slm == registry.default_slm_repo,
+            recommended: recommended_slm == ModelRole::Slm,
             accelerator: "Metal / Vulkan / XNNPACK".into(),
         },
         ModelArtifact {
@@ -289,7 +269,7 @@ pub fn catalog(registry: &ModelRegistry, hardware: &HardwareProfile) -> Vec<Mode
             files: vec![gemma_e4b()],
             description: "Higher-reasoning QAT INT4 SLM for 16 GB+ hosts".into(),
             min_ram_gb: 16,
-            recommended: recommended_slm == registry.pro_slm_repo,
+            recommended: recommended_slm == ModelRole::ProSlm,
             accelerator: "Metal / Vulkan / XNNPACK".into(),
         },
     ]
@@ -369,34 +349,90 @@ mod tests {
             .collect();
         assert!(ids.contains(&"whisper-tiny"));
         assert!(ids.contains(&"gemma-4-e2b-it"));
-        assert!(!ids.contains(&"parakeet-tdt-0.6b-v3"));
+        assert!(!ids.contains(&"whisper-small"));
     }
 
     #[test]
-    fn high_tier_selects_parakeet_and_e4b() {
+    fn every_tier_recommends_exactly_one_asr_and_one_slm() {
+        // Both Whisper files share one Hugging Face repo, so a repo-equality
+        // check once marked both as recommended. Recommendation is role-based.
+        for ram_gb in [4, 12, 32] {
+            let hardware = HardwareProfile::with_ram(ram_gb * GIB);
+            let recommended = recommended_artifacts(&registry(), &hardware);
+            let asr = recommended
+                .iter()
+                .filter(|artifact| matches!(artifact.role, ModelRole::Asr | ModelRole::FallbackAsr))
+                .count();
+            let slm = recommended
+                .iter()
+                .filter(|artifact| matches!(artifact.role, ModelRole::Slm | ModelRole::ProSlm))
+                .count();
+            assert_eq!(
+                asr, 1,
+                "tier for {ram_gb} GB recommends {asr} ASR artifacts"
+            );
+            assert_eq!(
+                slm, 1,
+                "tier for {ram_gb} GB recommends {slm} SLM artifacts"
+            );
+
+            let chosen_asr = artifact_for_role(&registry(), &hardware, ModelRole::Asr).unwrap();
+            let chosen_slm = artifact_for_role(&registry(), &hardware, ModelRole::Slm).unwrap();
+            assert!(recommended
+                .iter()
+                .any(|artifact| artifact.id == chosen_asr.id));
+            assert!(recommended
+                .iter()
+                .any(|artifact| artifact.id == chosen_slm.id));
+        }
+    }
+
+    #[test]
+    fn high_tier_selects_whisper_small_and_e4b() {
         let hardware = HardwareProfile::with_ram(32 * GIB);
         let recommended = recommended_artifacts(&registry(), &hardware);
         let ids: Vec<_> = recommended
             .iter()
             .map(|artifact| artifact.id.as_str())
             .collect();
-        assert!(ids.contains(&"parakeet-tdt-0.6b-v3"));
+        assert!(ids.contains(&"whisper-small"));
         assert!(ids.contains(&"gemma-4-e4b-it"));
     }
 
     #[test]
     fn artifact_urls_and_paths_are_well_formed() {
         let hardware = HardwareProfile::with_ram(32 * GIB);
-        let parakeet = artifact_for_role(&registry(), &hardware, ModelRole::Asr).unwrap();
-        assert_eq!(parakeet.total_bytes(), 615 * MIB);
+        let asr = artifact_for_role(&registry(), &hardware, ModelRole::Asr).unwrap();
+        assert_eq!(asr.total_bytes(), 190_085_487);
         assert_eq!(
-            parakeet.download_url("https://huggingface.co/", &parakeet.files[0].filename),
-            "https://huggingface.co/litert-community/parakeet-tdt-0.6b-v3/resolve/main/parakeet_tdt_0.6b_v3_5s_i8_stateful.litertlm?download=true"
+            asr.download_url("https://huggingface.co/", &asr.files[0].filename),
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin?download=true"
         );
         assert_eq!(
-            parakeet.local_path(Path::new("/models"), &parakeet.files[0].filename),
-            PathBuf::from("/models/litert-community/parakeet-tdt-0.6b-v3/parakeet_tdt_0.6b_v3_5s_i8_stateful.litertlm")
+            asr.local_path(Path::new("/models"), &asr.files[0].filename),
+            PathBuf::from("/models/ggerganov/whisper.cpp/ggml-small-q5_1.bin")
         );
+    }
+
+    #[test]
+    fn every_artifact_pins_a_sha256_digest() {
+        let hardware = HardwareProfile::with_ram(32 * GIB);
+        for artifact in catalog(&registry(), &hardware) {
+            for file in &artifact.files {
+                assert_eq!(
+                    file.sha256.len(),
+                    64,
+                    "{} has no pinned digest",
+                    file.filename
+                );
+                assert!(
+                    file.sha256.chars().all(|c| c.is_ascii_hexdigit()),
+                    "{} digest is not hex",
+                    file.filename
+                );
+                assert!(file.size_bytes > 0);
+            }
+        }
     }
 
     #[test]

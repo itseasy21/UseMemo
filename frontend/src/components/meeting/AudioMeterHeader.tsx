@@ -221,10 +221,10 @@ export function AudioMeterHeader({
                 <p className="text-[10px] font-semibold text-text-primary">Capture pipeline</p>
                 <dl className="space-y-1.5 text-[9px]">
                   {[
-                    ["ASR", "parakeet-tdt-0.6b-v3"],
-                    ["Diarization", "pyannote + WeSpeaker"],
-                    ["Sample rate", "48 kHz · 2ch"],
-                    ["Latency", "640 ms streaming"],
+                    ["ASR", "whisper-small · on-device"],
+                    ["Source", "microphone"],
+                    ["Archive", "16 kHz mono WAV"],
+                    ["Sample rate", "48 kHz internal mix"],
                     ["Verifier", "local · fail closed"],
                   ].map(([label, value]) => (
                     <div key={label} className="flex justify-between gap-2">
