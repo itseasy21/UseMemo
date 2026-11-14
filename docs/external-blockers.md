@@ -109,11 +109,27 @@ synthesized macOS voices through ScreenCaptureKit and separates them. A real hum
 two-voice call, overlapping speech, and music/noise beds have not been verified on this
 host.
 
+## Mobile capture
+
+**Permission and session plumbing is implemented; native builds are blocked.** The
+first-party `memo-mobile-audio` Tauri plugin requests microphone consent, declares the
+Android permissions, holds transient Android audio focus, and activates/deactivates the
+iOS `AVAudioSession`. `Info.ios.plist` is generated with the mandatory microphone usage
+string and `UIBackgroundModes: audio`, and the recording dialog asks before creating a
+meeting. Desktop uses a no-op implementation, and the plugin's wire models have tests.
+
+**Blocked on this host:** there is no Xcode or iPhoneOS SDK, the Android NDK download did
+not complete, and no Android device/emulator is attached. `tauri android init` stops at
+`Android NDK not found`. The Kotlin and Swift sources have not been compiled or run; only
+Swift parsing, plist lint, and manifest lint were checked.
+
+**Unblock:** install full Xcode and the iPhoneOS SDK for iOS; install an Android NDK
+(r29+) and set `NDK_HOME` for Android; then run the init/build commands in
+[mobile.md](./mobile.md) and perform the consent, Bluetooth, interruption, and background
+recording checks on real devices.
+
 **Still not implemented:**
 
-- **iOS/Android capture.** `cpal` compiles for mobile targets, but microphone permission
-  prompts, audio-session categories, and the Tauri mobile project are not wired or tested.
-  The engine and WAV/ASR layers are portable Rust with no desktop-only dependency.
 - **Streaming ASR.** Transcription intentionally runs after the take. Live caption deltas
   would require a streaming decoder and a second model state; the UI does not claim them.
 

@@ -36,6 +36,7 @@ After the M7 closeout, the real capture → transcription path was implemented a
 | Diarization toggle | `meetings.diarization_enabled` (migration 0003), default on; `speakerCount` returned with the transcription outcome |
 | Model integrity | `ModelFile.sha256` is mandatory; real Whisper and Gemma digests pinned |
 | macOS permission | `NSMicrophoneUsageDescription` + audio-input entitlement generated into the bundle; Screen Recording requested for loopback |
+| Mobile permissions | `memo-mobile-audio` Tauri plugin: Android consent/manifest/audio focus and iOS record permission/`AVAudioSession`; generated `Info.ios.plist` with background audio |
 | UI | Local recordings panel lists real takes, shows transcripts, and runs transcription with progress; the new-recording dialog probes `audio_capabilities` and meters both channels |
 | Honesty | Diarization is acoustic clustering of the loopback, not voice identification; short or overlapping human speech stays `Them`; echo cancellation is explicitly absent; Windows loopback remains unverified. The macOS runtime capture and a two-synthesized-voice diarization acceptance now pass on this host |
 
@@ -65,6 +66,27 @@ dropped before the merge rule, which erased a quieter speaker. Fragments now mer
 the duration floor. The tests still use synthesized speech; a real human two-voice meeting,
 crosstalk, and music/noise beds are not verified on this host.
 
+## Mobile slice (M8.13)
+
+Mobile builds now have a first-party `memo-mobile-audio` Tauri plugin. The recording dialog
+requests consent before creating the meeting, activates the platform session, and releases
+it after the take. Android declares `RECORD_AUDIO`/`MODIFY_AUDIO_SETTINGS`, uses Tauri's
+native permission request, and holds transient audio focus. iOS uses
+`AVAudioApplication`/`AVAudioSession` consent, a `.playAndRecord` session, and a generated
+`Info.ios.plist` with `NSMicrophoneUsageDescription` plus `UIBackgroundModes: audio`.
+
+```text
+cargo test -p memo-mobile-audio   5 passed
+xcrun swiftc -parse ...           ok
+plutil -lint Info.ios.plist       OK
+```
+
+Native compilation and device capture are **not verified**. This host has no Xcode or
+iPhoneOS SDK, the Android NDK install did not complete, and no device/emulator is attached;
+`tauri android init` reports `Android NDK not found`. The Swift source was parse-checked and
+the plist/manifest were linted, but neither native plugin was compiled against the mobile
+frameworks. See [mobile.md](./mobile.md).
+
 ## Packaging slice (M8.14)
 
 | Piece | Result |
@@ -87,20 +109,20 @@ Final gate run on the recorded host:
 
 ```text
 pnpm brand:check   Brand outputs are current for Use Memo.
-pnpm brand:test    13 passed
+pnpm brand:test    15 passed
 pnpm package:test  8 passed
 pnpm airgap:test   5 passed
-cargo test         41 audio + 8 bridge + 18 diarization + 101 host + 4 acceptance (3 gated skip by default)
+cargo test         41 audio + 8 bridge + 18 diarization + 5 mobile + 101 host + 4 acceptance (3 gated skip by default)
 MEMO_SYSTEM_AUDIO_E2E=1 ...  test loopback_captures_playback ... ok
 MEMO_DIARIZATION_E2E=1 ...   test two_voices_are_separated_from_loopback_audio ... ok
 pnpm typecheck     clean
 pnpm build         12 static pages exported
 prettier --check   clean
 cargo fmt --check  clean
-cargo clippy ...   Finished with -D warnings (host + audio crate)
+cargo clippy ...   Finished with -D warnings (workspace)
 ```
 
-That is **198 automated checks** (26 TypeScript/Node, 172 Rust), including one gated ASR
+That is **205 automated checks** (28 TypeScript/Node, 177 Rust), including one gated ASR
 acceptance that ran with a real 190 MB Whisper model and produced the transcript above.
 The manual native and browser fallback checklists are in [acceptance.md](./acceptance.md).
 
@@ -153,9 +175,9 @@ Documented in [external-blockers.md](./external-blockers.md):
 - M5.4 native LiteRT-LM worker compilation (Bazel + multi-GB upstream tree).
 - Model weights (not vendored; every catalog digest is pinned).
 - System-audio Windows runtime verification (the WASAPI backend compiles and lints for the
-  Windows target but has not run on a Windows host here), mobile capture plumbing,
-  cross-platform screenshot backends, OCR, and Developer ID notarization (the packaging and
-  local-signing path is implemented).
+  Windows target but has not run on a Windows host here), mobile native compilation/runtime
+  (permission/session plumbing is implemented), cross-platform screenshot backends, OCR,
+  and Developer ID notarization (the packaging and local-signing path is implemented).
 
 ## Reproduce
 

@@ -17,12 +17,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 | Suite | Tests | Proves |
 | --- | --- | --- |
-| Brand codegen (`scripts/apply-brand.test.ts`) | 13 | Manifest validation, overlay merge, Tauri/capability output, generated Info.plist, microphone entitlements, tokens, deterministic artifacts, assets |
+| Brand codegen (`scripts/apply-brand.test.ts`) | 15 | Manifest validation, overlay merge, Tauri/capability output, generated macOS/iOS plists, microphone entitlements, tokens, deterministic artifacts, assets |
 | Packaging (`scripts/package-release.test.ts`) | 8 | Artifact discovery/staging, normalized names, SHA-256 output, manifest ordering, bundle lookup, timestamps |
 | Air gap (`scripts/airgap.test.ts`) | 5 | No cloud SDK/endpoints, only allowlisted hosts, strict CSP, no browser network primitives |
 | `memo-audio-capture` | 41 | Ring buffers, mixing, resampling, downmix, level metering, WAV writer/reader, PCM formats |
 | `memo-litert-bridge` | 8 | Framing, size cap, request/response serde, worker timeout/error paths |
 | `memo-diarize` | 18 | VAD regions and fragment merging, MFCC finiteness, k-means separation, duration floors, turn alignment |
+| `memo-mobile-audio` | 5 | Permission/session wire models, native response parsing, desktop no-op behavior |
 | Tauri host | 101 | Storage/FTS, transactional transcript replacement, verifier, parser, export, screenshot policy, models, brand, events, sidecar, dual-channel session, speaker labels |
 | Screenshot/vault acceptance | 1 | Synthetic 35 s session, dedup, WebP export, relative assets, Markdown frontmatter |
 | ASR acceptance | 1 gated | Real whisper.cpp inference over known speech; skips unless a model and WAV are supplied |
@@ -222,6 +223,36 @@ cargo test (label_for)           ok
 This is synthesized speech, not a human meeting. A real two-voice recording,
 crosstalk/overlap, and music/noise beds remain unverified. Diarization is acoustic
 clustering, not voice identification; short or overlapping speech stays `Them`.
+
+## M8.13 — mobile permissions and audio sessions
+
+```bash
+cargo test -p memo-mobile-audio
+pnpm typecheck
+xcrun swiftc -parse crates/memo-mobile-audio/ios/Sources/MobileAudioPlugin.swift
+plutil -lint frontend/src-tauri/Info.ios.plist
+xmllint --noout crates/memo-mobile-audio/android/src/main/AndroidManifest.xml
+```
+
+The plugin tests cover permission/session serialization, the native permission response,
+and desktop no-op behavior. The generated plist carries the microphone usage string and
+`UIBackgroundModes: audio`; the Android manifest carries `RECORD_AUDIO` and
+`MODIFY_AUDIO_SETTINGS`. The recording dialog requests consent and activates the session
+before creating the meeting, then releases it after the take.
+
+Recorded evidence on this host:
+
+```text
+cargo test -p memo-mobile-audio   5 passed; 0 failed
+xcrun swiftc -parse ...           ok
+plutil -lint Info.ios.plist       OK
+xmllint AndroidManifest.xml       OK
+```
+
+Not verified here: native compilation and device capture. The host has no Xcode or
+iPhoneOS SDK, the Android NDK install did not finish, and no device/emulator is attached.
+`tauri android init` stops at `Android NDK not found`. See [mobile.md](./mobile.md) for the
+build steps and the remaining checks.
 
 ## M4.6 / M5 / M6 — host and UI gates
 

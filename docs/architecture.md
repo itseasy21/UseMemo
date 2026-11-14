@@ -60,6 +60,7 @@ events. There is no server component and no cloud dependency.
 | Domain | Commands |
 | --- | --- |
 | Brand | `get_brand_config`, `get_brand_manifest` |
+| Mobile | `microphone_permission`, `request_microphone_permission`, `configure_audio_session`, `deactivate_audio_session` |
 | Meetings | `create_meeting`, `list_meetings`, `get_meeting`, `finish_meeting`, `delete_meeting`, `set_meeting_starred`, `set_screenshot_interval`, `start_recording`, `stop_recording`, `recording_status`, `audio_capabilities` |
 | Notes | `save_notes`, `list_notes` |
 | Transcript | `append_transcript`, `transcribe_meeting`, `list_transcript`, `list_speakers`, `upsert_speaker`, `rename_speaker` |
@@ -126,6 +127,10 @@ stop ──► decode both WAVs ──► 30 s blocks ──► skip silent bloc
 - macOS requires `NSMicrophoneUsageDescription` and the
   `com.apple.security.device.audio-input` entitlement; both are generated into the bundle.
   System audio additionally needs the user's Screen Recording grant at runtime.
+- Mobile builds call `memo-mobile-audio` before creating the meeting: request microphone
+  consent, activate the platform session, then start the same capture session. Stopping
+  releases the session. iOS uses `.playAndRecord`; Android uses transient audio focus.
+  Native compilation is blocked on this host; see [mobile.md](./mobile.md).
 
 ## Storage
 
@@ -243,4 +248,5 @@ model directory.
 
 - [White-label and rebranding](./rebranding.md)
 - [Offline policy](./offline-policy.md)
+- [Mobile audio](./mobile.md)
 - [Acceptance and verification](./acceptance.md)

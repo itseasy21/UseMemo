@@ -107,7 +107,11 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
       - Per-meeting toggle (`diarization_enabled`, migration 0003) and `speakerCount` in the transcription outcome
       - VAD merges sub-second fragments before the duration floor, so a quieter speaker is not dropped; the loopback acceptance found and covers that case
       - Verified on synthetic timbres and on two synthesized macOS voices captured through ScreenCaptureKit (gated `MEMO_DIARIZATION_E2E=1`); a real human meeting, crosstalk, and music/noise beds remain unverified
-- [ ] M8.13 iOS/Android audio-session and permission plumbing
+- [x] M8.13 iOS/Android audio-session and permission plumbing
+      - First-party `memo-mobile-audio` Tauri plugin: Android `RECORD_AUDIO` consent, manifest permission, and transient audio focus; iOS record permission, `AVAudioSession` `.playAndRecord`, and session release
+      - Generated `Info.ios.plist` with `NSMicrophoneUsageDescription` and `UIBackgroundModes: audio`; the recording dialog requests consent and activates/releases the session before/after capture
+      - Desktop is a no-op; 5 plugin tests pass
+- [!] M8.13a Compile and run mobile capture on a device — blocked on Xcode/iPhoneOS SDK, a completed Android NDK install, and an Android device/emulator
 - [x] M8.14 Packaging, local signing, checksums, and CI
       - `pnpm package:release` builds/stages DMG/MSI/AppImage-family installers, verifies the macOS signature and audio-input entitlement, and writes `SHA256SUMS.txt` plus `release-manifest.json`
       - Generated `Info.plist` and `signingIdentity: "-"` produce valid ad-hoc, hardened-runtime local bundles; `APPLE_SIGNING_IDENTITY` overrides the config for Developer ID builds
@@ -124,6 +128,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
   Every catalog artifact pins a publisher SHA-256; the downloader verifies it and deletes a
   mismatched partial file.
 - System-audio loopback is implemented for macOS and type-checks for the Windows target
-  (runtime unverified there). Diarization, mobile capture plumbing, and Developer ID
-  notarization remain open; the local packaging path is documented in `docs/packaging.md`
-  and the blockers in `docs/external-blockers.md`.
+  (runtime unverified there). Mobile permission/session plumbing is implemented, but native
+  mobile compilation/runtime and Developer ID notarization remain blocked; the local
+  packaging path is documented in `docs/packaging.md` and the blockers in
+  `docs/external-blockers.md`.
