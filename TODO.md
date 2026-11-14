@@ -65,7 +65,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 
 - [x] M6.1 Next.js static-export shell, brand tokens, theme provider
 - [x] M6.2 View 1: sidebar + command/search palette
-- [ ] M6.3 View 2: synchronized 3-pane meeting studio (notes, transcript, filmstrip)
+- [x] M6.3 View 2: synchronized 3-pane meeting studio (notes, transcript, filmstrip)
 - [ ] M6.4 View 3: detached floating recording HUD route
 - [ ] M6.5 View 4: synthesis bento canvas with evidence chips + bidirectional highlight state
 - [ ] M6.6 View 5: LiteRT model manager / hardware studio
