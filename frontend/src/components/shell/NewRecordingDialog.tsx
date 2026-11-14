@@ -15,7 +15,6 @@ import {
   Users,
 } from "lucide-react";
 
-import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Kbd } from "@/components/ui/Kbd";
@@ -26,48 +25,19 @@ import { BRAND } from "@/generated/brand";
 import { useAudioLevels, useRecordingStopped } from "@/hooks/use-host-event";
 import { DEMO_MODELS } from "@/lib/demo-data";
 import { formatClock } from "@/lib/format";
-import { createMeeting, startRecording, stopRecording } from "@/lib/host";
+import { createMeeting, getAudioCapabilities, startRecording, stopRecording } from "@/lib/host";
 import { isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 /**
- * System-audio loopback and diarization are contract-only in this build. The
- * toggles stay visible so the roadmap is discoverable, but they are disabled
- * and labelled rather than pretending to capture something they do not.
+ * Diarization is still contract-only: every channel gets one honest label
+ * ("You" for the microphone, "Them" for the loopback). System audio is enabled
+ * from the host's capability probe rather than a hardcoded platform list.
  */
-const SYSTEM_AUDIO_AVAILABLE = false;
 const DIARIZATION_AVAILABLE = false;
 
-const SOURCES = [
-  {
-    id: "system",
-    label: "System audio",
-    detail: SYSTEM_AUDIO_AVAILABLE
-      ? "ScreenCaptureKit loopback · 48 kHz"
-      : "Not in this build · microphone only",
-    icon: MonitorSpeaker,
-    available: SYSTEM_AUDIO_AVAILABLE,
-  },
-  {
-    id: "screenshots",
-    label: "Periodic screenshots",
-    detail: `${BRAND.features.defaultScreenshotIntervalSec}s cadence · dHash dedupe`,
-    icon: Camera,
-    available: true,
-  },
-  {
-    id: "diarize",
-    label: "Speaker diarization",
-    detail: DIARIZATION_AVAILABLE
-      ? "Voiceprints stay in the vault"
-      : "Not in this build · single label per channel",
-    icon: Users,
-    available: DIARIZATION_AVAILABLE,
-  },
-] as const;
-
-type SourceId = (typeof SOURCES)[number]["id"];
+type SourceId = "system" | "screenshots" | "diarize";
 
 export function NewRecordingDialog() {
   const open = useWorkspaceStore((state) => state.newRecordingOpen);
@@ -80,14 +50,74 @@ export function NewRecordingDialog() {
   const [meetingId, setMeetingId] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [micLevel, setMicLevel] = useState(0);
+  const [systemLevel, setSystemLevel] = useState(0);
   const [noSignal, setNoSignal] = useState(false);
+  const [capabilities, setCapabilities] = useState<Awaited<
+    ReturnType<typeof getAudioCapabilities>
+  > | null>(null);
   const [sources, setSources] = useState<Record<SourceId, boolean>>({
-    system: SYSTEM_AUDIO_AVAILABLE,
+    system: false,
     screenshots: true,
     diarize: DIARIZATION_AVAILABLE,
   });
   const attemptRef = useRef(0);
   const peakMicRef = useRef(0);
+
+  const systemAvailable = capabilities?.systemAudio ?? false;
+
+  useEffect(() => {
+    if (!open || !isTauri()) return;
+    let cancelled = false;
+    void getAudioCapabilities().then((next) => {
+      if (!cancelled) setCapabilities(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setSources((current) =>
+      current.system && !systemAvailable ? { ...current, system: false } : current,
+    );
+  }, [open, systemAvailable]);
+
+  const sourcesConfig = useMemo(
+    () =>
+      [
+        {
+          id: "system" as const,
+          label: "System audio",
+          detail: systemAvailable
+            ? capabilities?.systemBackend === "wasapi"
+              ? "WASAPI loopback · 48 kHz · second archive"
+              : "ScreenCaptureKit loopback · 48 kHz · second archive"
+            : isTauri()
+              ? "Unavailable on this platform · microphone only"
+              : "Tauri host only · microphone in browser preview",
+          icon: MonitorSpeaker,
+          available: systemAvailable,
+        },
+        {
+          id: "screenshots" as const,
+          label: "Periodic screenshots",
+          detail: `${BRAND.features.defaultScreenshotIntervalSec}s cadence · dHash dedupe`,
+          icon: Camera,
+          available: true,
+        },
+        {
+          id: "diarize" as const,
+          label: "Speaker diarization",
+          detail: DIARIZATION_AVAILABLE
+            ? "Voiceprints stay in the vault"
+            : "Not in this build · one label per channel",
+          icon: Users,
+          available: DIARIZATION_AVAILABLE,
+        },
+      ] as const,
+    [capabilities?.systemBackend, systemAvailable],
+  );
 
   const installedAsr = useMemo(
     () =>
@@ -106,6 +136,8 @@ export function NewRecordingDialog() {
       setStarting(false);
       setMeetingId(null);
       setElapsedMs(0);
+      setMicLevel(0);
+      setSystemLevel(0);
       setNoSignal(false);
       peakMicRef.current = 0;
     }
@@ -133,7 +165,11 @@ export function NewRecordingDialog() {
     (payload) => {
       if (!meetingId || payload.meetingId !== meetingId) return;
       const level = Math.max(0, Math.min(1, (payload.rmsDbfs + 60) / 60));
-      setMicLevel(level);
+      if (payload.channel === "system") {
+        setSystemLevel(level);
+      } else {
+        setMicLevel(level);
+      }
     },
     started && Boolean(meetingId),
   );
@@ -171,6 +207,23 @@ export function NewRecordingDialog() {
         "accent",
       );
     }
+    if (payload.systemError) {
+      pushToast("System audio stopped early", payload.systemError, "accent");
+    } else if (payload.system?.error) {
+      pushToast("System audio stopped early", payload.system.error, "accent");
+    } else if (payload.system?.silent) {
+      pushToast(
+        "No system audio was captured",
+        "Nothing was playing during the take, or Screen Recording permission is missing.",
+        "accent",
+      );
+    } else if (payload.system && payload.system.droppedBlocks > 0) {
+      pushToast(
+        "The system-audio buffer overran",
+        `${payload.system.droppedBlocks} loopback blocks were dropped. The remote channel may have gaps.`,
+        "accent",
+      );
+    }
   });
 
   const toggleSource = (source: SourceId) => {
@@ -195,7 +248,9 @@ export function NewRecordingDialog() {
         asrModelId: installedAsr?.id,
         slmModelId: installedSlm?.id,
       });
-      const recording = meeting ? await startRecording(meeting.id) : null;
+      const recording = meeting
+        ? await startRecording(meeting.id, { captureSystemAudio: sources.system })
+        : null;
       if (attemptRef.current !== attempt) {
         // The dialog was dismissed while the host was preparing the session.
         if (recording) await stopRecording(recording.id);
@@ -206,7 +261,9 @@ export function NewRecordingDialog() {
         setStarted(false);
         pushToast(
           "Could not start the local recording",
-          "Check microphone and screen-capture permissions, then try again.",
+          sources.system
+            ? "Check microphone permission and Screen Recording permission, then try again."
+            : "Check microphone permission, then try again.",
           "danger",
         );
         return;
@@ -333,24 +390,44 @@ export function NewRecordingDialog() {
                 </p>
               ) : null}
             </div>
-            <div className="rounded-brand border border-dashed border-border-subtle bg-bg-primary/20 p-3">
+            <div
+              className={cn(
+                "rounded-brand border p-3",
+                sources.system
+                  ? "border-border-subtle bg-bg-primary/35"
+                  : "border-dashed border-border-subtle bg-bg-primary/20",
+              )}
+            >
               <div className="mb-2 flex items-center justify-between text-[10px] font-medium text-text-muted">
                 <span className="flex items-center gap-1.5">
-                  <AudioLines className="size-3 text-accent-secondary" /> System · Remote
+                  <AudioLines className="size-3 text-accent-secondary" /> System · Them
                 </span>
-                <span className="tabular">off</span>
+                <span className="tabular">
+                  {sources.system ? `${Math.round(systemLevel * 100)}%` : "off"}
+                </span>
               </div>
-              <p className="text-[10px] leading-4 text-text-muted">
-                System audio is not captured in this build. Put the call on speaker, or join from a
-                second device.
-              </p>
+              {sources.system ? (
+                <>
+                  <Meter value={systemLevel} label="System audio level" />
+                  <p className="mt-2 text-[10px] leading-4 text-text-muted">
+                    Use headphones. Echo cancellation is off, so the microphone can also hear your
+                    speakers.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[10px] leading-4 text-text-muted">
+                  {systemAvailable
+                    ? "Loopback is off for this take. Enable it before recording to capture the remote side."
+                    : "System audio is unavailable here. Put the call on speaker, or join from a second device."}
+                </p>
+              )}
             </div>
           </div>
 
           <div className="rounded-brand border border-border-subtle bg-bg-primary/35 p-3">
             <div className="flex flex-wrap items-center gap-2 text-[10px] text-text-muted">
               <Pill tone="accent" icon={<Check className="size-2.5" />}>
-                Microphone only
+                {sources.system ? "Mic + system" : "Microphone only"}
               </Pill>
               <Pill tone={sources.screenshots ? "secondary" : "outline"}>
                 Screenshots{" "}
@@ -363,9 +440,11 @@ export function NewRecordingDialog() {
               <Pill tone="neutral">{installedSlm?.name ?? "Local SLM"}</Pill>
             </div>
             <p className="mt-2 text-[10.5px] leading-5 text-text-muted">
-              Audio streams to a 16 kHz mono WAV in the vault while you record, and the header is
-              patched on stop so an interrupted take stays playable. Screenshots are deduped before
-              they are written.
+              {sources.system
+                ? "Two independent 16 kHz mono WAVs are written to the vault: the microphone is labelled You, the loopback is labelled Them. "
+                : "The microphone streams to a 16 kHz mono WAV in the vault while you record. "}
+              Headers are patched on stop so an interrupted take stays playable, and screenshots are
+              deduped before they are written.
             </p>
           </div>
         </div>
@@ -417,7 +496,7 @@ export function NewRecordingDialog() {
           </div>
 
           <div className="space-y-1">
-            {SOURCES.map((source) => {
+            {sourcesConfig.map((source) => {
               const Icon = source.icon;
               return (
                 <div
@@ -446,12 +525,16 @@ export function NewRecordingDialog() {
             })}
           </div>
 
+          {capabilities?.note ? (
+            <p className="px-1 text-[10px] leading-4 text-text-muted">{capabilities.note}</p>
+          ) : null}
+
           <div className="flex items-center gap-2 rounded-brand border border-dashed border-border-subtle bg-bg-primary/20 px-3 py-2 text-[10px] leading-4 text-text-muted">
-            <Avatar name="Sarah Chen" tone="accent" size="xs" />
-            <Avatar name="Alex Rivera" tone="secondary" size="xs" />
-            <Avatar name="You" tone="violet" size="xs" />
-            <span className="ml-1">
-              Voiceprints enrolled for these speakers. Rename labels any time in the studio.
+            <Mic className="size-3 shrink-0 text-accent-primary" />
+            <span>
+              Microphone segments are labelled “You” and loopback segments “Them”. Speaker
+              diarization is not enabled in this build, so labels describe the channel rather than a
+              guessed identity.
             </span>
           </div>
         </div>

@@ -428,6 +428,8 @@ mod tests {
             updated_at: 1_763_097_635_000,
             duration_ms: 35_000,
             audio_file_path: None,
+            system_audio_file_path: None,
+            system_audio_started_at_ms: 0,
             screenshot_interval_sec: 10,
             asr_model_id: "parakeet-tdt-0.6b-v3".into(),
             slm_model_id: "gemma-4-e2b-it".into(),

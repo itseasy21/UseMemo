@@ -137,7 +137,19 @@ export type TranscriptionOutcomeRecord = {
   segments: number;
   blocks: number;
   skippedBlocks: number;
+  channels: number;
   durationMs: number;
+};
+
+/** Mirrors the host's `audio_capabilities` command. */
+export type AudioCapabilitiesRecord = {
+  microphone: boolean;
+  systemAudio: boolean;
+  systemBackend: "screencapturekit" | "wasapi" | null;
+  diarization: boolean;
+  echoCancellation: boolean;
+  archiveSampleRate: number;
+  note: string | null;
 };
 
 export type CreateMeetingPayload = {
@@ -160,8 +172,16 @@ export function getMeeting(meetingId: string) {
   return invokeCommand<MeetingRecord>("get_meeting", { meetingId });
 }
 
-export function startRecording(meetingId: string) {
-  return invokeCommand<MeetingRecord>("start_recording", { meetingId });
+export type StartRecordingOptions = {
+  /** Request the platform loopback as a second archive. */
+  captureSystemAudio?: boolean;
+};
+
+export function startRecording(meetingId: string, options: StartRecordingOptions = {}) {
+  return invokeCommand<MeetingRecord>("start_recording", {
+    meetingId,
+    captureSystemAudio: options.captureSystemAudio ?? false,
+  });
 }
 
 export function stopRecording(meetingId: string) {
@@ -170,6 +190,10 @@ export function stopRecording(meetingId: string) {
 
 export function recordingStatus() {
   return invokeCommand<RecordingSnapshot | null>("recording_status");
+}
+
+export function getAudioCapabilities() {
+  return invokeCommand<AudioCapabilitiesRecord>("audio_capabilities");
 }
 
 export function synthesizeMeeting(meetingId: string) {

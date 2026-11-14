@@ -18,7 +18,7 @@ events. There is no server component and no cloud dependency.
 │  ├─ HardwareProfile (RAM tier, Metal/XNNPACK, NPU label)             │
 │  ├─ ScreenCapture (system or synthetic)                              │
 │  ├─ CaptureLease + recording runtime                                 │
-│  ├─ AudioCaptureSession (cpal thread → mixer → 16 kHz WAV)           │
+│  ├─ AudioCaptureSession (mic + system → two 16 kHz WAVs)             │
 │  ├─ AsrEngine (whisper.cpp in-process, lazily loaded)                │
 │  └─ SynthesisEngine (sidecar or UnavailableEngine)                   │
 │                                                                      │
@@ -37,9 +37,10 @@ events. There is no server component and no cloud dependency.
   and detects hardware once at startup.
 - The sidecar is spawned lazily on the first synthesis request and kept warm. Missing
   worker or model selection resolves to `UnavailableEngine`, which returns a typed error.
-- Audio capture runs on its own thread. The `cpal` callback only downmixes and hands blocks
-  to a bounded channel; mixing, resampling, metering, and disk I/O stay off the realtime
-  callback. Whisper inference runs on a blocking worker, never on the async runtime.
+- Audio capture runs on dedicated threads. The `cpal` callback only downmixes and hands
+  blocks to a bounded channel; the ScreenCaptureKit/WASAPI tap feeds a second bounded
+  channel. Mixing, resampling, metering, and disk I/O stay off the realtime callback.
+  Whisper inference runs on a blocking worker, never on the async runtime.
 
 ## Renderer
 
@@ -59,7 +60,7 @@ events. There is no server component and no cloud dependency.
 | Domain | Commands |
 | --- | --- |
 | Brand | `get_brand_config`, `get_brand_manifest` |
-| Meetings | `create_meeting`, `list_meetings`, `get_meeting`, `finish_meeting`, `delete_meeting`, `set_meeting_starred`, `set_screenshot_interval`, `start_recording`, `stop_recording`, `recording_status` |
+| Meetings | `create_meeting`, `list_meetings`, `get_meeting`, `finish_meeting`, `delete_meeting`, `set_meeting_starred`, `set_screenshot_interval`, `start_recording`, `stop_recording`, `recording_status`, `audio_capabilities` |
 | Notes | `save_notes`, `list_notes` |
 | Transcript | `append_transcript`, `transcribe_meeting`, `list_transcript`, `list_speakers`, `upsert_speaker`, `rename_speaker` |
 | Screenshots | `list_screenshots`, `capture_screenshot`, `update_screenshot_ocr` |
@@ -74,7 +75,7 @@ events. There is no server component and no cloud dependency.
 | `audio:levels` | `meetingId`, `channel`, `rmsDbfs`, `peakDbfs`, `atMs` | audio capture session |
 | `asr:progress` | `meetingId`, `stage`, `percent`, `segments`, `processedMs`, `totalMs` | transcription pipeline |
 | `asr:segment-delta` | `meetingId`, `seqNo`, `startMs`, `endMs`, `speakerLabel`, `text`, `isFinal` | transcription pipeline / `append_transcript` path |
-| `recording:stopped` | `meetingId`, `durationMs`, `path`, `silent`, `droppedBlocks`, `peakDbfs`, `error` | `stop_recording` |
+| `recording:stopped` | `meetingId`, `durationMs`, `path`, `silent`, `droppedBlocks`, `peakDbfs`, `system`, `systemError`, `error` | `stop_recording` |
 | `screenshot:captured` | `meetingId`, `screenshot`, `deduplicated`, `reason` | interval task and manual capture |
 | `synthesis:progress` | `meetingId`, `stage`, `percent`, `message` | synthesis orchestrator |
 | `models:download-progress` | `artifactId`, `filename`, `downloadedBytes`, `totalBytes`, `percent`, `phase` | downloader |
@@ -85,13 +86,16 @@ events. There is no server component and no cloud dependency.
 ## Audio capture and transcription
 
 ```text
-cpal callback ──► bounded channel ──► mixer (48 kHz) ──► meter ──► audio:levels
-                                          └──► 16 kHz ──► WAV writer ──► media/<meeting>/audio.wav
+cpal callback ──► bounded channel ──┐
+                                    ├──► channel mixer (48 kHz) ──► meter ──► audio:levels
+ScreenCaptureKit / WASAPI loopback ─┘         └──► 16 kHz ──► WAV writer
+                                                               ├── media/<meeting>/audio.wav          (mic, "You")
+                                                               └── media/<meeting>/audio-system.wav   (system, "Them")
 
-stop ──► decode WAV ──► 30 s blocks ──► skip silent blocks ──► whisper.cpp
+stop ──► decode both WAVs ──► 30 s blocks ──► skip silent blocks ──► whisper.cpp
                                                               │
                                                               ▼
-                                          transaction: replace transcript_segments
+                                   merge on one clock ──► transaction: replace transcript_segments
                                                               │
                                                               ▼
                                                   asr:progress / asr:segment-delta
@@ -99,10 +103,21 @@ stop ──► decode WAV ──► 30 s blocks ──► skip silent blocks ─
 
 - Capture starts before the meeting is marked `recording`; a missing or denied microphone
   fails the start and rolls the meeting back instead of leaving a phantom take.
+- Each source owns a pipeline, a WAV writer, and a meter. The archives are independent by
+  design: a loopback failure becomes a fact on the take, not a corrupted microphone file.
+- macOS loopback uses an audio-only `SCStream` (2×2 surface, no screen handler) with
+  `excludes_current_process_audio`; Windows uses WASAPI loopback on the default render
+  endpoint. The Windows backend type-checks for `x86_64-pc-windows-msvc` through
+  `scripts/check-windows-backend.sh`, but has not run on this macOS host.
+- System archives record `system_audio_started_at_ms`, so a tap that begins after the
+  microphone still lands on the meeting timeline during transcription.
+- Echo cancellation is deliberately absent. The microphone can hear the speakers, so the
+  UI recommends headphones and the docs do not claim clean separation beyond the channel.
 - The WAV writer streams to disk and patches the RIFF header on finalize, including from
   `Drop`, so a crash leaves a playable file.
-- `stop_recording` joins the writer on a blocking thread, persists `audio_file_path`, trusts
-  the sample clock for duration, and emits `recording:stopped` with silence/overrun facts.
+- `stop_recording` joins both writers on a blocking thread, persists `audio_file_path` and
+  `system_audio_file_path`, trusts the sample clock for duration, and emits
+  `recording:stopped` with per-channel silence/overrun facts.
 - Transcription is post-hoc and block-based. This keeps peak memory flat for long meetings
   and makes silent input cheap. The engine sits behind `AsrEngine`, so a LiteRT-LM
   `OmniEngine` can replace whisper.cpp without touching storage or UI.
@@ -110,10 +125,12 @@ stop ──► decode WAV ──► 30 s blocks ──► skip silent blocks ─
   intact and never strands the meeting in `processing`.
 - macOS requires `NSMicrophoneUsageDescription` and the
   `com.apple.security.device.audio-input` entitlement; both are generated into the bundle.
+  System audio additionally needs the user's Screen Recording grant at runtime.
 
 ## Storage
 
-`migrations/0001_initial.sql` creates:
+`migrations/0001_initial.sql` creates the core schema; `0002_system_audio.sql` adds
+`system_audio_file_path` and `system_audio_started_at_ms` to `meetings`.
 
 - `folders`, `meetings`, `meeting_tags`
 - `note_blocks`, `speakers`, `transcript_segments`

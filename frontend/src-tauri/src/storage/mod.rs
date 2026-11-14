@@ -25,6 +25,8 @@ pub struct Meeting {
     pub updated_at: i64,
     pub duration_ms: i64,
     pub audio_file_path: Option<String>,
+    pub system_audio_file_path: Option<String>,
+    pub system_audio_started_at_ms: i64,
     pub screenshot_interval_sec: i64,
     pub asr_model_id: String,
     pub slm_model_id: String,
@@ -346,12 +348,32 @@ impl Database {
     }
 
     pub async fn set_audio_file_path(&self, id: &str, path: &str) -> AppResult<()> {
-        sqlx::query("UPDATE meetings SET audio_file_path = ?1, updated_at = ?2 WHERE id = ?3")
-            .bind(path)
-            .bind(Utc::now().timestamp_millis())
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        self.set_audio_file_paths(id, Some(path), None, 0).await
+    }
+
+    /// Persist the two independent capture archives in one statement.
+    ///
+    /// `system` is `None` both when loopback was not requested and when it was
+    /// requested but produced nothing, so the vault never points at a file that
+    /// is not there.
+    pub async fn set_audio_file_paths(
+        &self,
+        id: &str,
+        microphone: Option<&str>,
+        system: Option<&str>,
+        system_started_at_ms: i64,
+    ) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE meetings SET audio_file_path = ?1, system_audio_file_path = ?2, \
+             system_audio_started_at_ms = ?3, updated_at = ?4 WHERE id = ?5",
+        )
+        .bind(microphone)
+        .bind(system)
+        .bind(system_started_at_ms.max(0))
+        .bind(Utc::now().timestamp_millis())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -1067,6 +1089,50 @@ mod tests {
                 "missing table {expected}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn recording_paths_store_microphone_and_system_archives() {
+        let db = db().await;
+        let meeting = db
+            .create_meeting(CreateMeetingInput {
+                title: Some("Two streams".into()),
+                screenshot_interval_sec: Some(10),
+                asr_model_id: Some("whisper-small".into()),
+                slm_model_id: Some("gemma-e4b".into()),
+                folder_id: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(meeting.system_audio_file_path, None);
+
+        db.set_audio_file_paths(
+            &meeting.id,
+            Some("/vault/m/audio.wav"),
+            Some("/vault/m/audio-system.wav"),
+            420,
+        )
+        .await
+        .unwrap();
+        let stored = db.get_meeting(&meeting.id).await.unwrap();
+        assert_eq!(
+            stored.audio_file_path.as_deref(),
+            Some("/vault/m/audio.wav")
+        );
+        assert_eq!(
+            stored.system_audio_file_path.as_deref(),
+            Some("/vault/m/audio-system.wav")
+        );
+        assert_eq!(stored.system_audio_started_at_ms, 420);
+
+        // A microphone-only retake must clear the stale system path, not leave
+        // the transcript pointing at an old loopback file.
+        db.set_audio_file_paths(&meeting.id, Some("/vault/m/audio.wav"), None, 0)
+            .await
+            .unwrap();
+        let stored = db.get_meeting(&meeting.id).await.unwrap();
+        assert_eq!(stored.system_audio_file_path, None);
+        assert_eq!(stored.system_audio_started_at_ms, 0);
     }
 
     #[tokio::test]

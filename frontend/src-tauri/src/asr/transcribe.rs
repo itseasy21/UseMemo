@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
 use crate::asr::engine::{block_ranges, clean_text, is_silent, AsrEngine, BLOCK_MS};
+use crate::audio::AudioChannel;
 use crate::error::{AppError, AppResult};
 use crate::events::{AsrProgressPayload, AsrSegmentDeltaPayload, MeetingChangedPayload};
 #[cfg(feature = "asr")]
@@ -13,10 +14,13 @@ use crate::model_registry::{catalog, HardwareProfile, ModelRole};
 use crate::state::AppState;
 use crate::storage::NewTranscriptSegment;
 
-/// Speaker label for microphone audio. Diarization is not wired yet, so every
-/// microphone segment is attributed to the local user rather than guessed at.
+/// Speaker labels are channel-based until real diarization exists. Naming the
+/// microphone "You" and the loopback "Them" is honest: it reflects which
+/// device captured the sound, not an inferred identity.
 const MIC_LABEL: &str = "You";
 const MIC_CHANNEL: &str = "mic";
+const SYSTEM_LABEL: &str = "Them";
+const SYSTEM_CHANNEL: &str = "system";
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,7 +30,21 @@ pub struct TranscriptionOutcome {
     pub segments: usize,
     pub blocks: usize,
     pub skipped_blocks: usize,
+    pub channels: usize,
     pub duration_ms: i64,
+}
+
+struct SourceTrack {
+    channel: AudioChannel,
+    path: PathBuf,
+    /// Where this archive begins on the meeting timeline.
+    offset_ms: i64,
+}
+
+struct DecodedTrack {
+    channel: AudioChannel,
+    offset_ms: i64,
+    samples: Vec<f32>,
 }
 
 /// Transcribe a meeting's archive, replacing any previous transcript.
@@ -40,12 +58,26 @@ pub async fn transcribe_meeting(
 ) -> AppResult<TranscriptionOutcome> {
     let _serial = state.transcribing.lock().await;
     let meeting = state.db.get_meeting(meeting_id).await?;
-    let path = meeting
-        .audio_file_path
-        .clone()
-        .ok_or_else(|| AppError::Asr("this meeting has no recorded audio".into()))?;
+    let mut sources = Vec::with_capacity(2);
+    if let Some(path) = meeting.audio_file_path.clone() {
+        sources.push(SourceTrack {
+            channel: AudioChannel::Microphone,
+            path: PathBuf::from(path),
+            offset_ms: 0,
+        });
+    }
+    if let Some(path) = meeting.system_audio_file_path.clone() {
+        sources.push(SourceTrack {
+            channel: AudioChannel::System,
+            path: PathBuf::from(path),
+            offset_ms: meeting.system_audio_started_at_ms.max(0),
+        });
+    }
+    if sources.is_empty() {
+        return Err(AppError::Asr("this meeting has no recorded audio".into()));
+    }
 
-    // Prefer the sample clock in the file; fall back to the stored duration.
+    // Prefer the sample clock in the files; fall back to the stored duration.
     let fallback_duration = meeting.duration_ms;
 
     state
@@ -54,7 +86,7 @@ pub async fn transcribe_meeting(
         .await?;
     let _ = emit_progress(app, meeting_id, "loading", 0.0, 0, 0, 0);
 
-    let result = run(app, state, meeting_id, &path, &meeting.asr_model_id).await;
+    let result = run(app, state, meeting_id, &sources, &meeting.asr_model_id).await;
     let duration = result
         .as_ref()
         .map(|outcome| outcome.duration_ms)
@@ -95,66 +127,101 @@ async fn run(
     app: &AppHandle,
     state: &AppState,
     meeting_id: &str,
-    path: &str,
+    sources: &[SourceTrack],
     preferred_model: &str,
 ) -> AppResult<TranscriptionOutcome> {
-    let path = PathBuf::from(path);
-    let samples = tokio::task::spawn_blocking(move || decode_16k(&path))
-        .await
-        .map_err(|error| AppError::Asr(format!("decode task failed: {error}")))??;
+    let mut tracks = Vec::with_capacity(sources.len());
+    for source in sources {
+        let path = source.path.clone();
+        let samples = tokio::task::spawn_blocking(move || decode_16k(&path))
+            .await
+            .map_err(|error| AppError::Asr(format!("decode task failed: {error}")))??;
+        tracks.push(DecodedTrack {
+            channel: source.channel,
+            offset_ms: source.offset_ms,
+            samples,
+        });
+    }
 
-    let duration_ms = (samples.len() as i128 * 1_000 / 16_000) as i64;
+    let duration_ms = tracks
+        .iter()
+        .map(|track| track.offset_ms + samples_to_ms(track.samples.len()))
+        .max()
+        .unwrap_or(0);
     let engine = engine_for(state, preferred_model).await?;
 
-    let ranges = block_ranges(samples.len(), (16_000 * BLOCK_MS / 1_000) as usize);
+    let ranges_per_track: Vec<_> = tracks
+        .iter()
+        .map(|track| block_ranges(track.samples.len(), (16_000 * BLOCK_MS / 1_000) as usize))
+        .collect();
+    let total_ranges: usize = ranges_per_track.iter().map(Vec::len).sum();
+    let mut processed_ranges = 0usize;
+    let mut processed_ms = 0i64;
+
     let mut pending: Vec<NewTranscriptSegment> = Vec::new();
     let mut skipped_blocks = 0usize;
     let mut blocks = 0usize;
 
-    for (index, (start, end)) in ranges.iter().enumerate() {
-        let block = &samples[*start..*end];
-        let offset_ms = (*start as i128 * 1_000 / 16_000) as i64;
+    for (track, ranges) in tracks.iter().zip(ranges_per_track.iter()) {
+        let (label, channel) = match track.channel {
+            AudioChannel::Microphone => (MIC_LABEL, MIC_CHANNEL),
+            AudioChannel::System => (SYSTEM_LABEL, SYSTEM_CHANNEL),
+        };
 
-        if is_silent(block) {
-            skipped_blocks += 1;
-        } else {
-            blocks += 1;
-            let engine = Arc::clone(&engine);
-            let owned = block.to_vec();
-            let segments = tokio::task::spawn_blocking(move || engine.transcribe(&owned, None))
-                .await
-                .map_err(|error| AppError::Asr(format!("inference task failed: {error}")))??;
+        for (start, end) in ranges {
+            let block = &track.samples[*start..*end];
+            let offset_ms = track.offset_ms + samples_to_ms(*start);
 
-            for segment in segments {
-                let Some(text) = clean_text(&segment.text) else {
-                    continue;
-                };
-                let start_ms = offset_ms + segment.start_ms.max(0);
-                let end_ms = (offset_ms + segment.end_ms).max(start_ms);
-                pending.push(NewTranscriptSegment {
-                    seq_no: pending.len() as i64 + 1,
-                    start_ms,
-                    end_ms,
-                    speaker_label: MIC_LABEL.into(),
-                    audio_channel: MIC_CHANNEL.into(),
-                    text,
-                    is_confirmed: true,
-                });
+            if is_silent(block) {
+                skipped_blocks += 1;
+            } else {
+                blocks += 1;
+                let engine = Arc::clone(&engine);
+                let owned = block.to_vec();
+                let segments = tokio::task::spawn_blocking(move || engine.transcribe(&owned, None))
+                    .await
+                    .map_err(|error| AppError::Asr(format!("inference task failed: {error}")))??;
+
+                for segment in segments {
+                    let Some(text) = clean_text(&segment.text) else {
+                        continue;
+                    };
+                    let start_ms = offset_ms + segment.start_ms.max(0);
+                    let end_ms = (offset_ms + segment.end_ms).max(start_ms);
+                    pending.push(NewTranscriptSegment {
+                        seq_no: 0,
+                        start_ms,
+                        end_ms,
+                        speaker_label: label.into(),
+                        audio_channel: channel.into(),
+                        text,
+                        is_confirmed: true,
+                    });
+                }
             }
-        }
 
-        let processed_ms = (*end as i128 * 1_000 / 16_000) as i64;
-        let percent = ((index + 1) as f32 / ranges.len() as f32) * 100.0;
-        let _ = emit_progress(
-            app,
-            meeting_id,
-            "transcribing",
-            percent,
-            pending.len(),
-            processed_ms,
-            duration_ms,
-        );
+            processed_ranges += 1;
+            processed_ms += samples_to_ms(*end - *start);
+            let percent = if total_ranges == 0 {
+                100.0
+            } else {
+                (processed_ranges as f32 / total_ranges as f32) * 100.0
+            };
+            let _ = emit_progress(
+                app,
+                meeting_id,
+                "transcribing",
+                percent,
+                pending.len(),
+                processed_ms,
+                duration_ms,
+            );
+        }
     }
+
+    // Both channels share one timeline, so renumber after the merge instead of
+    // numbering each archive independently.
+    let pending = merge_channels(pending);
 
     // Swap the transcript in one transaction only after every block decoded.
     // A failure above leaves the previous transcript untouched.
@@ -180,8 +247,28 @@ async fn run(
         segments: stored.len(),
         blocks,
         skipped_blocks,
+        channels: tracks.len(),
         duration_ms,
     })
+}
+
+/// Order both channels on one clock, microphone first on an exact tie, then
+/// renumber `seq_no` from 1 so the transcript list has a stable order.
+fn merge_channels(mut segments: Vec<NewTranscriptSegment>) -> Vec<NewTranscriptSegment> {
+    segments.sort_by_key(|segment| {
+        (
+            segment.start_ms,
+            u8::from(segment.audio_channel == SYSTEM_CHANNEL),
+        )
+    });
+    for (index, segment) in segments.iter_mut().enumerate() {
+        segment.seq_no = index as i64 + 1;
+    }
+    segments
+}
+
+fn samples_to_ms(samples: usize) -> i64 {
+    (samples as i128 * 1_000 / 16_000) as i64
 }
 
 /// Return a cached engine, loading the installed model on first use.
@@ -313,10 +400,67 @@ mod tests {
             segments: 12,
             blocks: 3,
             skipped_blocks: 1,
+            channels: 2,
             duration_ms: 90_000,
         };
         let value = serde_json::to_value(outcome).unwrap();
         assert_eq!(value["engineId"], "whisper-rs");
         assert_eq!(value["skippedBlocks"], 1);
+        assert_eq!(value["channels"], 2);
+    }
+
+    fn segment(start_ms: i64, channel: &str) -> NewTranscriptSegment {
+        NewTranscriptSegment {
+            seq_no: 0,
+            start_ms,
+            end_ms: start_ms + 500,
+            speaker_label: if channel == SYSTEM_CHANNEL {
+                SYSTEM_LABEL.into()
+            } else {
+                MIC_LABEL.into()
+            },
+            audio_channel: channel.into(),
+            text: format!("{channel} at {start_ms}"),
+            is_confirmed: true,
+        }
+    }
+
+    #[test]
+    fn channels_merge_on_one_timeline_and_renumber() {
+        let merged = merge_channels(vec![
+            segment(20_000, SYSTEM_CHANNEL),
+            segment(5_000, MIC_CHANNEL),
+            segment(5_000, SYSTEM_CHANNEL),
+            segment(1_000, SYSTEM_CHANNEL),
+        ]);
+
+        let order: Vec<_> = merged
+            .iter()
+            .map(|segment| (segment.start_ms, segment.audio_channel.as_str()))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                (1_000, SYSTEM_CHANNEL),
+                (5_000, MIC_CHANNEL),
+                (5_000, SYSTEM_CHANNEL),
+                (20_000, SYSTEM_CHANNEL),
+            ]
+        );
+        assert_eq!(
+            merged
+                .iter()
+                .map(|segment| segment.seq_no)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 4]
+        );
+    }
+
+    #[test]
+    fn late_system_archive_is_offset_onto_the_meeting_clock() {
+        assert_eq!(samples_to_ms(16_000), 1_000);
+        let offset_ms = 2_500;
+        let start = offset_ms + samples_to_ms(16_000);
+        assert_eq!(start, 3_500);
     }
 }

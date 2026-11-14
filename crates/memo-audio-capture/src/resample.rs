@@ -44,7 +44,7 @@ impl SincResampler {
                 "sample rates must be positive".into(),
             ));
         }
-        if taps < 5 || taps % 2 == 0 {
+        if taps < 5 || taps.is_multiple_of(2) {
             return Err(AudioError::InvalidConfig(
                 "taps must be odd and at least 5".into(),
             ));
@@ -116,7 +116,7 @@ impl SincResampler {
 
     pub fn reset(&mut self) {
         self.buffer.clear();
-        self.buffer.extend(std::iter::repeat(0.0).take(self.half));
+        self.buffer.extend(std::iter::repeat_n(0.0, self.half));
         self.buffer_start = -(self.half as i64);
         self.position = 0.0;
         self.input_total = 0;
@@ -139,7 +139,7 @@ impl SincResampler {
                     break;
                 }
                 let missing = (need_end - buffer_end) as usize;
-                self.buffer.extend(std::iter::repeat(0.0).take(missing));
+                self.buffer.extend(std::iter::repeat_n(0.0, missing));
             }
 
             let frac = self.position - center as f64;

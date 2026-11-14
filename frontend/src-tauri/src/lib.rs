@@ -40,6 +40,7 @@ pub fn run() {
             commands::meetings::start_recording,
             commands::meetings::stop_recording,
             commands::meetings::recording_status,
+            commands::meetings::audio_capabilities,
             commands::notes::save_notes,
             commands::notes::list_notes,
             commands::transcript::transcribe_meeting,

@@ -76,6 +76,8 @@ mod tests {
             updated_at: 0,
             duration_ms: 0,
             audio_file_path: None,
+            system_audio_file_path: None,
+            system_audio_started_at_ms: 0,
             screenshot_interval_sec: 10,
             asr_model_id: "a".into(),
             slm_model_id: "s".into(),

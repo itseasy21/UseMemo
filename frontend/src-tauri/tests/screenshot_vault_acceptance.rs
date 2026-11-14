@@ -18,7 +18,7 @@ fn frame(width: u32, height: u32, seed: u8) -> Vec<u8> {
         for x in 0..width {
             // Sliding vertical stripes: each slide shifts the phase, which is
             // exactly what a horizontal difference hash detects.
-            let stripe = ((x + seed as u32 * 20) / 24) % 2 == 0;
+            let stripe = ((x + seed as u32 * 20) / 24).is_multiple_of(2);
             let value = if stripe { 235 } else { 20 };
             rgba.extend_from_slice(&[value, value, value, 255]);
         }
@@ -43,6 +43,8 @@ fn synthetic_35_second_session_exports_four_relative_webp_screenshots() {
         updated_at: 1_763_097_635_000,
         duration_ms: 35_000,
         audio_file_path: None,
+        system_audio_file_path: None,
+        system_audio_started_at_ms: 0,
         screenshot_interval_sec: 10,
         asr_model_id: "parakeet-tdt-0.6b-v3".into(),
         slm_model_id: "gemma-4-e2b-it".into(),

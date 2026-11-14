@@ -21,12 +21,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 | Air gap (`scripts/airgap.test.ts`) | 5 | No cloud SDK/endpoints, only allowlisted hosts, strict CSP, no browser network primitives |
 | `memo-audio-capture` | 41 | Ring buffers, mixing, resampling, downmix, level metering, WAV writer/reader, PCM formats |
 | `memo-litert-bridge` | 8 | Framing, size cap, request/response serde, worker timeout/error paths |
-| Tauri host | 93 | Storage/FTS, transactional transcript replacement, verifier, parser, export, screenshot policy, models, brand, events, sidecar |
+| Tauri host | 100 | Storage/FTS, transactional transcript replacement, verifier, parser, export, screenshot policy, models, brand, events, sidecar, dual-channel session |
 | Screenshot/vault acceptance | 1 | Synthetic 35 s session, dedup, WebP export, relative assets, Markdown frontmatter |
 | ASR acceptance | 1 gated | Real whisper.cpp inference over known speech; skips unless a model and WAV are supplied |
+| System-audio acceptance | 1 gated | Real ScreenCaptureKit loopback over a played tone; skips unless enabled and granted |
 
 The ASR test is compiled but returns early without `MEMO_ASR_E2E=1`, so the default suite
-stays offline and fast.
+stays offline and fast. The system-audio test behaves the same without
+`MEMO_SYSTEM_AUDIO_E2E=1`.
 
 The host was recorded as an Apple M1 Pro / 16 GB / macOS 27.2 / Rust 1.100.0. See
 `build-env.json`.
@@ -123,6 +125,59 @@ test whisper_transcribes_known_speech_with_timestamps ... ok
 The test asserts the expected words and at least one positive timestamp range. It does not
 assert exact punctuation, because decoder punctuation is model-dependent.
 
+## System-audio loopback acceptance
+
+```bash
+MEMO_SYSTEM_AUDIO_E2E=1 \
+cargo test -p use-memo --test system_audio_acceptance -- --nocapture
+```
+
+The test writes a four-second 440 Hz tone, opens ScreenCaptureKit first, plays the tone
+through the normal output device with `afplay`, and fails unless at least one block arrives
+with a peak above `0.01`. It skips with instructions when the process lacks Screen
+Recording permission, and it skips if `afplay` is unavailable. The machine must not be
+muted; loopback capture is post-mix.
+
+When it runs, this test proves the macOS backend end to end. On the recorded host it
+skipped because the test process was denied Screen Recording:
+
+```text
+SKIP system-audio acceptance: capture error: system audio capture needs Screen Recording
+permission. Grant it in System Settings → Privacy & Security → Screen Recording, then restart
+the app. (No shareable content available: Content unavailable: The user declined TCCs for
+application, window, display capture)
+```
+
+The harness handled the denial as designed: actionable message, no failure, no fake audio.
+Grant Screen Recording to the terminal or test host, restart it, and rerun to complete the
+runtime check. Until then, macOS loopback is implemented and unit-tested (downmix, session
+accounting) but not capture-verified on this host.
+
+The WASAPI backend cannot be executed on macOS, but its API usage is checked without a
+Windows machine:
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+bash scripts/check-windows-backend.sh
+```
+
+The script compiles and lints `audio/system/windows.rs` against `wasapi` 0.27 with a stub
+error type. That is a compile check, not capture; the backend has not run on a Windows host
+in this repository's recorded environment, so its status is "compiles, not tested here".
+
+## Channel merge checks
+
+The unit suite proves the parts that do not need a device:
+
+- `audio::session::tests::take_duration_covers_a_late_system_archive` keeps a system tap
+  that starts after the microphone on the shared clock.
+- `audio::session::tests::system_failure_is_a_fact_not_a_lost_microphone_take` checks that a
+  loopback error is reported without discarding the microphone outcome.
+- `asr::transcribe::tests::channels_merge_on_one_timeline_and_renumber` orders
+  `You`/`Them` segments by `startMs` and renumbers `seq_no` across channels.
+- `storage::tests::recording_paths_store_microphone_and_system_archives` verifies both paths
+  and the offset, and that a microphone-only retake clears a stale system path.
+
 ## M4.6 / M5 / M6 — host and UI gates
 
 ```bash
@@ -142,11 +197,16 @@ Run `pnpm tauri:dev` and verify:
 2. The HUD opens as a separate always-on-top window and reflects recording status.
 3. "New recording" creates a meeting, starts a session, counts up, and stops cleanly.
    Stopping writes `media/<meeting>/audio.wav` and a `recording:stopped` event with the
-   sample-clock duration.
+   sample-clock duration. When **System audio** is enabled on a supported host, the same
+   take also writes `media/<meeting>/audio-system.wav`, and the dialog shows a live meter
+   for both channels. Play something audible and use headphones so the microphone does not
+   re-record the speakers.
 4. **Local recordings** on the dashboard lists the take, shows its status/duration, and
    enables Transcribe only when audio exists. Transcribing shows real percent progress,
    writes segments through one transaction, and renders timestamps and speaker labels.
-   If the microphone was denied, the take is reported silent and no text is invented.
+   With loopback enabled, remote segments are labelled `Them` and are interleaved with the
+   `You` microphone segments on one clock. If the microphone was denied, the take is
+   reported silent and no text is invented; a silent system archive is reported separately.
 5. A screenshot appears after the interval or manual capture; an unchanged screen is
    deduplicated.
 6. Synthesis reports progress stages and a verification report. Without the native worker

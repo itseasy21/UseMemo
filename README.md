@@ -26,7 +26,8 @@ Licensed under **GPL-3.0-or-later**. See [LICENSE](./LICENSE).
 | Tauri IPC commands, typed events, browser fallback | Working |
 | LiteRT-LM C++ worker source + stdio protocol | Implemented; native compilation blocked (see below) |
 | Microphone capture → WAV → on-device transcription | Working (whisper.cpp; post-recording, block-based) |
-| System-audio loopback and speaker diarization | Not implemented; the UI marks both as planned and does not fake them |
+| System-audio loopback | Implemented on macOS (ScreenCaptureKit) with a gated real-capture acceptance; that test skipped on this host because Screen Recording was denied. WASAPI backend type-checks for the Windows target but has not run on a Windows host |
+| Speaker diarization | Not implemented; `You`/`Them` describe the capture channel, not a guessed identity |
 | Signed/notarized distributable | Not produced in this workspace |
 
 The browser preview is fully local: it runs the demo vault and never calls a network API.
@@ -52,6 +53,10 @@ calls fall back to the demo data instead of breaking the UI.
   mixer, then a 16 kHz mono WAV that is written while the meeting runs. A finished take is
   decoded in 30-second blocks and transcribed with whisper.cpp (`whisper-rs`), with silent
   blocks skipped. No network call is involved.
+- **Two-channel capture** — when the host supports it, ScreenCaptureKit (macOS) or WASAPI
+  loopback (Windows) writes a second, independent `audio-system.wav`. The transcript merges
+  both archives on one timeline and labels microphone segments `You` and loopback segments
+  `Them`. A failed tap cannot corrupt the microphone take.
 - **Model Studio** — hardware tiering, model registry, download progress events, resume
   support, declared-size enforcement, and mandatory SHA-256 verification.
 - **White-label engine** — one manifest generates Tauri config, capabilities, icons,
@@ -106,7 +111,7 @@ TODO.md                    Milestone checklist and commit map
 ## Requirements
 
 - Node.js **>= 20.9** and pnpm **12.11.2** (`corepack enable`).
-- Rust **1.77.2+** with `rustfmt` and `clippy`.
+- Rust **1.90+** with `rustfmt` and `clippy` (the floor of the resolved Tauri 2.12 graph).
 - Tauri 2 system prerequisites (Xcode Command Line Tools on macOS; WebView2 on Windows;
   WebKitGTK on Linux).
 - macOS **13.0+** for the generated bundle. System screenshot capture needs macOS Screen
@@ -143,11 +148,33 @@ pnpm test                 # brand + air-gap + entire Rust workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Expected Rust totals on this host: **25** audio tests, **8** bridge tests, **80** Tauri
-unit tests, and **1** end-to-end screenshot/vault acceptance test.
+Expected Rust totals on this host: **41** audio-core tests, **8** bridge tests, **100** Tauri
+unit tests, one screenshot/vault acceptance test, and two gated real-device tests (ASR and
+system-audio loopback).
 
 The screenshot/vault acceptance runs without a display by using the synthetic capture
 backend. macOS system capture is exercised only through the UI.
+
+The real-device system-audio check is opt-in and needs Screen Recording permission plus an
+audible output device:
+
+```bash
+MEMO_SYSTEM_AUDIO_E2E=1 cargo test -p use-memo \
+  --test system_audio_acceptance -- --nocapture
+```
+
+It plays a short tone with `afplay` and asserts that ScreenCaptureKit delivered non-silence.
+Without the grant it skips with instructions instead of failing.
+
+The Windows backend can be type-checked and linted from macOS (it is pure Rust):
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+bash scripts/check-windows-backend.sh
+```
+
+That proves the `wasapi` API usage compiles; it does not prove capture. A Windows host is
+still required for the runtime acceptance.
 
 ---
 
@@ -251,9 +278,15 @@ The protocol and framing limits are documented in
   not vendored. The catalog pins Whisper small/tiny and Gemma E2B/E4B digests; the
   downloader rejects any byte that does not match.
 - **Audio path** — microphone capture, WAV archival, and post-recording whisper.cpp
-  transcription work on the recorded macOS host. System-audio loopback (ScreenCaptureKit),
-  diarization, and iOS/Android capture plumbing are not implemented. The demo studio still
-  renders the pinned demo vault; real takes appear in **Local recordings** on the dashboard.
+  transcription work on the recorded macOS host. macOS system-audio loopback is implemented,
+  but its real-capture acceptance skipped here because Screen Recording was denied to the
+  test process, so runtime capture still needs a grant and a rerun. The WASAPI backend
+  compiles and lints for `x86_64-pc-windows-msvc` via
+  `scripts/check-windows-backend.sh`, but it has not run on a Windows host here. Speaker
+  diarization and iOS/Android capture plumbing are not implemented. System audio does not
+  echo-cancel, so headphones are recommended.
+  The demo studio still renders the pinned demo vault; real takes appear in **Local
+  recordings** on the dashboard.
 - **Screenshot platforms** — system capture is implemented for macOS; other platforms need
   a backend. Tests use the deterministic synthetic backend.
 - **Distribution** — signing, notarization, updater artifacts, and CI packaging are out of

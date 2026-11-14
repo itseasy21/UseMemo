@@ -301,12 +301,16 @@ pub fn read_wav_bytes(bytes: &[u8]) -> AudioResult<WavAudio> {
 
     let interleaved: Vec<f32> = match (format, bits) {
         (1, 16) => pcm
-            .chunks_exact(2)
-            .map(|pair| i16::from_le_bytes([pair[0], pair[1]]) as f32 / f32::from(i16::MAX))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| i16::from_le_bytes(*pair) as f32 / f32::from(i16::MAX))
             .collect(),
         (3, 32) => pcm
-            .chunks_exact(4)
-            .map(|quad| f32::from_le_bytes([quad[0], quad[1], quad[2], quad[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|quad| f32::from_le_bytes(*quad))
             .map(|sample| {
                 if sample.is_finite() {
                     sample.clamp(-1.0, 1.0)
@@ -396,8 +400,10 @@ mod tests {
         writer.write_samples(&[0.0, 0.5, -0.5]).unwrap();
         let bytes = writer.into_inner().unwrap().into_inner();
         let pcm: Vec<i16> = bytes[44..]
-            .chunks_exact(2)
-            .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| i16::from_le_bytes(*pair))
             .collect();
         assert_eq!(pcm[0], 0);
         assert_eq!(pcm[1], 16_384);

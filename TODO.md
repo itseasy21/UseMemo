@@ -92,7 +92,11 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M8.8 macOS microphone usage string and audio-input entitlement, with codegen test
 - [x] M8.9 Real-model ASR acceptance (`MEMO_ASR_E2E=1`) and Local recordings UI
 - [x] M8.10 Documentation honesty pass (README, architecture, blockers, acceptance, delivery)
-- [ ] M8.11 System-audio loopback (ScreenCaptureKit on macOS, WASAPI on Windows)
+- [x] M8.11 System-audio loopback
+      - macOS: ScreenCaptureKit audio-only tap → `audio-system.wav`; gated `MEMO_SYSTEM_AUDIO_E2E=1` acceptance (skipped here because Screen Recording was denied)
+      - Windows: WASAPI loopback backend written; type-checks and lints for `x86_64-pc-windows-msvc` from macOS, but has not run on a Windows host here
+      - Transcript merges both archives on one clock with `You`/`Them` channel labels; `audio_capabilities` drives the UI toggle
+      - Echo cancellation intentionally absent; headphones recommended
 - [ ] M8.12 Speaker diarization (segmentation + embedding + clustering)
 - [ ] M8.13 iOS/Android audio-session and permission plumbing
 - [ ] M8.14 Signing, notarization, updater artifacts, and CI packaging
@@ -105,5 +109,6 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - Model weights are large downloads from `huggingface.co` and are not vendored in git.
   Every catalog artifact pins a publisher SHA-256; the downloader verifies it and deletes a
   mismatched partial file.
-- System-audio loopback, diarization, mobile capture plumbing, and distribution signing are
-  tracked in M8.11–M8.14 and documented in `docs/external-blockers.md`.
+- System-audio loopback is implemented for macOS and type-checks for the Windows target
+  (runtime unverified there). Diarization, mobile capture plumbing, and distribution signing
+  are tracked in M8.12–M8.14 and documented in `docs/external-blockers.md`.

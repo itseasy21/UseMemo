@@ -5,5 +5,9 @@
 //! in the meeting's media directory.
 
 pub mod session;
+pub mod system;
 
-pub use session::{AudioCaptureOutcome, AudioCaptureSession, AudioLevelSample};
+pub use session::{
+    AudioCaptureOutcome, AudioCaptureSession, AudioCaptureTake, AudioChannel, AudioLevelSample,
+};
+pub use system::{system_audio_backend, system_audio_supported};

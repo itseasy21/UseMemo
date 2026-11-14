@@ -74,6 +74,8 @@ export type MeetingRecord = {
   updatedAt: number;
   durationMs: number;
   audioFilePath: string | null;
+  systemAudioFilePath: string | null;
+  systemAudioStartedAtMs: number;
   screenshotIntervalSec: number;
   asrModelId: string;
   slmModelId: string;
@@ -86,6 +88,17 @@ export type MeetingChangedPayload = {
   meeting: MeetingRecord;
 };
 
+/** Facts about the loopback archive of a take. */
+export type SystemAudioFacts = {
+  path: string;
+  startedAtMs: number;
+  durationMs: number;
+  silent: boolean;
+  droppedBlocks: number;
+  peakDbfs: number;
+  error: string | null;
+};
+
 /** Emitted when a take is finalized, with facts the meeting row cannot carry. */
 export type RecordingStoppedPayload = {
   meetingId: string;
@@ -94,6 +107,8 @@ export type RecordingStoppedPayload = {
   silent: boolean;
   droppedBlocks: number;
   peakDbfs: number;
+  system: SystemAudioFacts | null;
+  systemError: string | null;
   error: string | null;
 };
 

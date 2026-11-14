@@ -88,6 +88,21 @@ pub struct MeetingChangedPayload {
     pub meeting: Meeting,
 }
 
+/// Facts about the system-audio archive. Kept nested so the microphone fields
+/// above remain the primary contract for older callers.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemAudioFacts {
+    pub path: String,
+    pub started_at_ms: i64,
+    pub duration_ms: i64,
+    pub silent: bool,
+    pub dropped_blocks: u64,
+    pub peak_dbfs: f32,
+    /// A stream error that truncated the archive. The file is still playable.
+    pub error: Option<String>,
+}
+
 /// Emitted when a take is finalized. Carries the facts the UI needs to tell the
 /// user whether the recording is actually usable, which the `Meeting` row alone
 /// cannot express.
@@ -100,6 +115,9 @@ pub struct RecordingStoppedPayload {
     pub silent: bool,
     pub dropped_blocks: u64,
     pub peak_dbfs: f32,
+    pub system: Option<SystemAudioFacts>,
+    /// Set when the loopback tap failed before it could produce an archive.
+    pub system_error: Option<String>,
     pub error: Option<String>,
 }
 

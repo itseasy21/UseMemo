@@ -81,7 +81,7 @@ mod tests {
         let mut out = Vec::with_capacity((width * height * 4) as usize);
         for y in 0..height {
             for x in 0..width {
-                let on = (x / 8 + y / 8) % 2 == 0;
+                let on = (x / 8 + y / 8).is_multiple_of(2);
                 let value = if on ^ invert { 245 } else { 10 };
                 out.extend_from_slice(&[value, value, value, 255]);
             }

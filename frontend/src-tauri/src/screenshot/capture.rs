@@ -104,7 +104,7 @@ impl SyntheticScreenCapture {
         let mut rgba = Vec::with_capacity((width * height * 4) as usize);
         for _y in 0..height {
             for x in 0..width {
-                let stripe = ((x + seed as u32 * 20) / 24) % 2 == 0;
+                let stripe = ((x + seed as u32 * 20) / 24).is_multiple_of(2);
                 let value = if stripe { 235 } else { 20 };
                 rgba.extend_from_slice(&[value, value, value, 255]);
             }
