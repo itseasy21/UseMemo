@@ -48,38 +48,50 @@ with LiteRT-LM installed, then place `memo-litert-worker` next to the app binary
 
 ## Model weights and digests
 
-**Blocked on download size and provenance.** Weights are multi-GB and not vendored:
+**Weights are not vendored.** Every shipped catalog artifact now carries a mandatory
+SHA-256 from the publisher; an unpinned download is not representable in the type system.
 
-| Artifact | Approx. size |
-| --- | --- |
-| Parakeet TDT 0.6B v3 | 615 MiB |
-| Whisper Tiny fallback | 42 MiB |
-| Speaker diarization + embedding | 20 MiB |
-| Gemma 4 E2B IT | 2.6 GB |
-| Gemma 4 E4B IT | 3.55 GB |
+| Artifact | Size | SHA-256 |
+| --- | --- | --- |
+| Whisper small q5_1 (`ggml-small-q5_1.bin`) | 190,085,487 B | `ae85e4a9…11bb` |
+| Whisper tiny q5_1 (`ggml-tiny-q5_1.bin`) | 32,152,673 B | `81871056…c3d7` |
+| Gemma 4 E2B IT (`gemma-4-E2B-it.litertlm`) | 2,588,147,712 B | `18193810…a63c` |
+| Gemma 4 E4B IT (`gemma-4-E4B-it.litertlm`) | 3,659,530,240 B | `0b2a8980…52e0` |
 
-The downloader enforces the declared byte size, resumes partial files, computes SHA-256,
-and rejects a mismatch when the registry provides a digest. The shipped catalog currently
-has `sha256: null` for the large artifacts because the exact upstream files and digests
-were not available offline. A production release must populate trusted digests; otherwise
-integrity is limited to size and transport security.
+The downloader enforces declared size, resumes partial files, computes SHA-256, and deletes
+the partial file on any mismatch. Digests were read from the Hugging Face API and the
+Whisper small file was downloaded and re-hashed on the recorded host.
 
-**Unblock:** fetch the exact artifacts on a connected staging host, record their SHA-256
-values in `model_registry.rs`, and add a test that rejects a real-artifact hash mismatch.
-Keep the weights out of git.
+**Remaining:** weights stay out of git and must be provisioned on first run. A production
+release still needs a mirror/offline-bundle decision for air-gapped deployments.
 
-## Live audio capture and ASR
+## Audio capture and transcription
 
-**Not wired.** `crates/memo-audio-capture` contains the tested dual-stream DSP (ring
-buffers, mixing, resampling, downmix, level metering) but no OS bindings. The Tauri
-`start_recording` command currently owns session state and the screenshot scheduler, not an
-audio pipeline. The UI renders the pinned demo transcript, and `audio:levels` /
-`asr:segment-delta` are contracts without a producer.
+**Microphone path works.** `memo-audio-capture` binds `cpal` to the platform audio
+framework, downmixes to mono, feeds the clean-room mixer at 48 kHz, and archives 16 kHz mono
+WAV while the meeting runs. `stop_recording` finalizes the header, persists the path, and
+reports silence/overrun facts. `transcribe_meeting` decodes the archive in 30-second blocks,
+skips silent blocks, runs whisper.cpp, and replaces `transcript_segments` in one
+transaction. The real-model acceptance test transcribes known speech with timestamps.
 
-**Unblock:** add Core Audio / WASAPI / ALSA adapters behind `AudioSource`, wire the mixer to
-a WAV writer and streaming ASR, emit the two events, and persist segments through
-`append_transcript`. Then replace the demo transcript with `list_transcript` data in the
-studio.
+**Not implemented:**
+
+- **System audio (ScreenCaptureKit/Core Audio tap).** The dialog shows a disabled
+  "Planned" toggle and tells the user to use the microphone or a second device. No loopback
+  samples are captured or claimed.
+- **Speaker diarization.** Every microphone segment is labelled `You`; no voiceprint
+  embedding or clustering runs. The voiceprint columns and model registry entry exist but
+  are unused.
+- **iOS/Android capture.** `cpal` compiles for mobile targets, but microphone permission
+  prompts, audio-session categories, and the Tauri mobile project are not wired or tested.
+  The engine and WAV/ASR layers are portable Rust with no desktop-only dependency.
+- **Streaming ASR.** Transcription intentionally runs after the take. Live caption deltas
+  would require a streaming decoder and a second model state; the UI does not claim them.
+
+**Unblock (system audio):** add a ScreenCaptureKit audio-only tap on macOS and WASAPI
+loopback on Windows behind `AudioSource::System`, feed the existing mixer, and tag segments
+`system`. **Unblock (diarization):** run the registry segmentation/embedding models after
+capture and cluster into `speakers`. Both must stay local.
 
 ## Cross-platform screenshot capture
 
@@ -90,16 +102,13 @@ harness use the synthetic backend via `MEMO_SYNTHETIC_CAPTURE=1`.
 **Unblock:** add Windows Graphics Capture and a Linux PipeWire/portal backend behind the
 same `ScreenCapture` trait, with the existing dHash/dedup path unchanged.
 
-## Slide OCR and diarization engines
+## Slide OCR
 
 **Contract only.** `screenshots.ocr_extracted_text` is indexed by FTS5 and
-`update_screenshot_ocr` persists results, but no OCR/vision engine runs. Speaker voiceprint
-columns and the diarization registry artifact exist, but no embedding or clustering engine
-is wired.
+`update_screenshot_ocr` persists results, but no OCR/vision engine runs.
 
 **Unblock:** run on-device OCR/vision over accepted frames and feed the text into the
-existing column; run diarization embeddings after capture and persist speaker centroids.
-Both must remain local and use the existing evidence/verification rules.
+existing column. It must remain local and use the existing evidence rules.
 
 ## Distribution and release
 

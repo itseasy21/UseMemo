@@ -17,12 +17,16 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 | Suite | Tests | Proves |
 | --- | --- | --- |
-| Brand codegen (`scripts/apply-brand.test.ts`) | 11 | Manifest validation, overlay merge, Tauri/capability output, tokens, deterministic artifacts, assets |
+| Brand codegen (`scripts/apply-brand.test.ts`) | 12 | Manifest validation, overlay merge, Tauri/capability output, microphone entitlements, tokens, deterministic artifacts, assets |
 | Air gap (`scripts/airgap.test.ts`) | 5 | No cloud SDK/endpoints, only allowlisted hosts, strict CSP, no browser network primitives |
-| `memo-audio-capture` | 25 | Ring buffers, mixing, resampling, downmix, level metering, format handling |
+| `memo-audio-capture` | 41 | Ring buffers, mixing, resampling, downmix, level metering, WAV writer/reader, PCM formats |
 | `memo-litert-bridge` | 8 | Framing, size cap, request/response serde, worker timeout/error paths |
-| Tauri host | 80 | Storage/FTS, verifier, parser, export, screenshot policy, models, brand, events, sidecar |
+| Tauri host | 93 | Storage/FTS, transactional transcript replacement, verifier, parser, export, screenshot policy, models, brand, events, sidecar |
 | Screenshot/vault acceptance | 1 | Synthetic 35 s session, dedup, WebP export, relative assets, Markdown frontmatter |
+| ASR acceptance | 1 gated | Real whisper.cpp inference over known speech; skips unless a model and WAV are supplied |
+
+The ASR test is compiled but returns early without `MEMO_ASR_E2E=1`, so the default suite
+stays offline and fast.
 
 The host was recorded as an Apple M1 Pro / 16 GB / macOS 27.2 / Rust 1.100.0. See
 `build-env.json`.
@@ -92,6 +96,33 @@ The test drives a synthetic 35-second meeting at a 10-second interval:
 - Copies four images and links them with relative `assets/` paths.
 - Reports missing images without aborting the export.
 
+## On-device ASR acceptance
+
+```bash
+MEMO_ASR_E2E=1 \
+MEMO_ASR_MODEL=/path/to/ggml-small-q5_1.bin \
+MEMO_ASR_WAV=/path/to/speech-16k.wav \
+cargo test -p use-memo --test asr_acceptance -- --nocapture
+```
+
+Generate a deterministic sample on macOS:
+
+```bash
+say -o /tmp/asr-sample.wav --data-format=LEI16@16000 \
+  "The quarterly launch review starts on Monday. We decided to delay the beta by two weeks."
+```
+
+Recorded result on the host with `ggml-small-q5_1.bin`
+(`sha256 ae85e4a9…11bb`, 190,085,487 bytes):
+
+```text
+ASR transcript: The quarterly launch review starts on Monday, we decided to delay the beta by two weeks.
+test whisper_transcribes_known_speech_with_timestamps ... ok
+```
+
+The test asserts the expected words and at least one positive timestamp range. It does not
+assert exact punctuation, because decoder punctuation is model-dependent.
+
 ## M4.6 / M5 / M6 — host and UI gates
 
 ```bash
@@ -110,13 +141,19 @@ Run `pnpm tauri:dev` and verify:
 1. The window title and icon match the active brand.
 2. The HUD opens as a separate always-on-top window and reflects recording status.
 3. "New recording" creates a meeting, starts a session, counts up, and stops cleanly.
-4. A screenshot appears after the interval or manual capture; an unchanged screen is
+   Stopping writes `media/<meeting>/audio.wav` and a `recording:stopped` event with the
+   sample-clock duration.
+4. **Local recordings** on the dashboard lists the take, shows its status/duration, and
+   enables Transcribe only when audio exists. Transcribing shows real percent progress,
+   writes segments through one transaction, and renders timestamps and speaker labels.
+   If the microphone was denied, the take is reported silent and no text is invented.
+5. A screenshot appears after the interval or manual capture; an unchanged screen is
    deduplicated.
-5. Synthesis reports progress stages and a verification report. Without the native worker
+6. Synthesis reports progress stages and a verification report. Without the native worker
    it fails closed with a clear message and never calls a remote model.
-6. Model Studio lists hardware, artifacts, and install state; download progress updates.
-7. Search returns highlighted snippets; renaming a speaker updates results.
-8. Export writes `index.md` plus relative WebP assets under the brand data directory.
+7. Model Studio lists hardware, artifacts, and install state; download progress updates.
+8. Search returns highlighted snippets; renaming a speaker updates results.
+9. Export writes `index.md` plus relative WebP assets under the brand data directory.
 
 ## Browser fallback test
 

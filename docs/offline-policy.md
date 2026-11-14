@@ -8,7 +8,7 @@ reporting, remote logging, or cloud inference fallback.
 
 | Host | Purpose | Trigger | Enforcement |
 | --- | --- | --- | --- |
-| `huggingface.co` | Download a LiteRT model file from the brand registry | Explicit user action in Model Studio | HTTPS URL from the build-time manifest; declared size enforced; SHA-256 verified when a digest is configured |
+| `huggingface.co` | Download a model file from the brand registry | Explicit user action in Model Studio | HTTPS URL from the build-time manifest; declared size and mandatory SHA-256 digest enforced |
 | `127.0.0.1` / `localhost` | Local fixture server in downloader tests; Tauri/dev origins | Tests and development only | Not present in production model registry |
 | `ipc.localhost`, `asset.localhost` | Tauri IPC and asset protocol | Always (no external egress) | CSP allowlist |
 | `json.schemastore.org`, `schema.tauri.app` | JSON schema identifiers in config | Editor/build-time inspection only | Never fetched by the running app |
@@ -20,11 +20,11 @@ and a test update.
 ## Model downloads
 
 1. The registry provides a repository, filename, declared byte size, and an optional
-   SHA-256 digest.
+   SHA-256 digest (mandatory for every catalog file).
 2. The downloader builds `https://huggingface.co/<repo>/resolve/main/<filename>?download=true`.
 3. It streams to `<filename>.part`, resumes with HTTP Range if a partial exists, and never
    exceeds the declared size.
-4. It computes SHA-256, rejects a mismatch when a digest is configured, and atomically
+4. It computes SHA-256, rejects any mismatch, and atomically
    renames the file into `models/`.
 5. The UI receives `models:download-progress` events; nothing is fetched in the background.
 6. If a download is cancelled or fails, the partial file remains for a later resume.

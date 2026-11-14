@@ -80,10 +80,30 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M7.5 Full test suite + format/lint gate
 - [x] M7.6 Final docs, commit log audit, and branch summary
 
+## M8 — Production audio and on-device ASR
+
+- [x] M8.1 Streaming WAV writer/reader (header patch on finalize and `Drop`) + 16 tests
+- [x] M8.2 `cpal` microphone capture behind the `hardware` feature, with bounded backpressure
+- [x] M8.3 `AudioCaptureSession`: 48 kHz mix → 16 kHz mono archive, meters, silence/overrun facts
+- [x] M8.4 Recording lifecycle: capture before DB state, rollback on failure, `recording:stopped`
+- [x] M8.5 Mandatory `ModelFile.sha256`; real Whisper small/tiny and Gemma E2B/E4B digests
+- [x] M8.6 whisper.cpp engine behind `AsrEngine`, 30 s blocks, silence skipping, log suppression
+- [x] M8.7 Transactional transcript replacement + `asr:progress` event
+- [x] M8.8 macOS microphone usage string and audio-input entitlement, with codegen test
+- [x] M8.9 Real-model ASR acceptance (`MEMO_ASR_E2E=1`) and Local recordings UI
+- [x] M8.10 Documentation honesty pass (README, architecture, blockers, acceptance, delivery)
+- [ ] M8.11 System-audio loopback (ScreenCaptureKit on macOS, WASAPI on Windows)
+- [ ] M8.12 Speaker diarization (segmentation + embedding + clustering)
+- [ ] M8.13 iOS/Android audio-session and permission plumbing
+- [ ] M8.14 Signing, notarization, updater artifacts, and CI packaging
+
 ## Known external blockers
 
 - Native LiteRT-LM worker compilation requires Bazel and the upstream `google-ai-edge/LiteRT-LM`
   tree. The source, IPC contract, and build scaffold are committed; compilation is out of scope for
   this host session because it is a multi-GB native build.
-- Actual model weights are multi-GB downloads from `huggingface.co/litert-community` and are not
-  vendored in git. Downloader + SHA-256 verification are implemented and tested with fixtures.
+- Model weights are large downloads from `huggingface.co` and are not vendored in git.
+  Every catalog artifact pins a publisher SHA-256; the downloader verifies it and deletes a
+  mismatched partial file.
+- System-audio loopback, diarization, mobile capture plumbing, and distribution signing are
+  tracked in M8.11–M8.14 and documented in `docs/external-blockers.md`.

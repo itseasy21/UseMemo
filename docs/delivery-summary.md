@@ -18,21 +18,49 @@ This document closes M7.6: the final documentation, commit-log audit, and branch
 | M6 | Five UI surfaces, typed event wiring, HUD window, Model Studio, typecheck and static export |
 | M7 | Air-gap guard, hallucination acceptance, rebrand acceptance, screenshot/export acceptance, full gate, docs |
 
+## Production audio slice
+
+After the M7 closeout, the real capture → transcription path was implemented and verified:
+
+| Piece | Result |
+| --- | --- |
+| Microphone capture | `cpal` on a dedicated thread; bounded channel; mono downmix; backpressure counted |
+| Archive | Streaming 16 kHz mono 16-bit WAV, RIFF header patched on finalize and on `Drop` |
+| Capture session | Mixer → 48 kHz internal → 16 kHz archive; peak/RMS meter; `audio:levels`; silence flag |
+| Recording lifecycle | Capture starts before the DB marks recording; rollback on failure; `recording:stopped` carries silence/overrun facts |
+| ASR engine | whisper.cpp via `whisper-rs 0.16`, behind an `AsrEngine` trait; CPU-only, logs suppressed |
+| Transcription | 30 s blocks, silence skipping, transactional transcript replacement, `asr:progress` |
+| Model integrity | `ModelFile.sha256` is mandatory; real Whisper and Gemma digests pinned |
+| macOS permission | `NSMicrophoneUsageDescription` + audio-input entitlement generated into the bundle |
+| UI | Local recordings panel lists real takes, shows transcripts, and runs transcription with progress |
+| Honesty | System audio and diarization toggles are disabled and labelled `Planned`, not simulated |
+
+Real-model evidence:
+
+```text
+ASR transcript: The quarterly launch review starts on Monday, we decided to delay the beta by two weeks.
+test whisper_transcribes_known_speech_with_timestamps ... ok
+```
+
 ## Verification evidence
 
 Final gate run on the recorded host:
 
 ```text
 pnpm brand:check   Brand outputs are current for Use Memo.
-pnpm test          11 brand + 5 air-gap + 25 audio + 8 bridge + 80 host + 1 acceptance
+pnpm brand:test    12 passed
+pnpm airgap:test   5 passed
+cargo test         41 audio + 8 bridge + 93 host + 2 acceptance
 pnpm typecheck     clean
 pnpm build         12 static pages exported
-pnpm format:check  Rust + Prettier clean
-cargo clippy ...   Finished with -D warnings
+prettier --check   clean
+cargo fmt --check  clean
+cargo clippy ...   Finished with -D warnings (host + audio crate)
 ```
 
-That is **130 automated checks** (16 TypeScript/Node, 114 Rust), plus the manual native and
-browser fallback checklists in [acceptance.md](./acceptance.md).
+That is **161 automated checks** (17 TypeScript/Node, 144 Rust), including one gated ASR
+acceptance that ran with a real 190 MB Whisper model and produced the transcript above.
+The manual native and browser fallback checklists are in [acceptance.md](./acceptance.md).
 
 ## Commit audit
 
@@ -81,9 +109,9 @@ Documented in [external-blockers.md](./external-blockers.md):
 
 - M1.7 upstream baseline (unshipped `llama-helper`, build-time downloads, Bazel absent).
 - M5.4 native LiteRT-LM worker compilation (Bazel + multi-GB upstream tree).
-- Model weights and production digests (multi-GB, not vendored; catalog digests optional).
-- Live audio capture/ASR adapters, cross-platform screenshot backends, OCR/diarization
-  engines, and distribution signing.
+- Model weights (not vendored; every catalog digest is pinned).
+- System-audio loopback, diarization, mobile capture plumbing, cross-platform screenshot
+  backends, OCR, and distribution signing.
 
 ## Reproduce
 

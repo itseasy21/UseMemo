@@ -22,10 +22,11 @@ Licensed under **GPL-3.0-or-later**. See [LICENSE](./LICENSE).
 | SQLite schema, FTS5 search, repository layer | Working |
 | Anti-hallucination evidence verifier | Working, deterministic tests |
 | Screenshot capture, dHash dedup, WebP storage, vault export | Working (macOS capture backend; synthetic backend for tests) |
-| LiteRT model registry, resumable size-checked downloads | Working; SHA-256 gate when a digest is configured; weights not vendored |
+| Model registry, resumable downloads, mandatory SHA-256 | Working; every catalog artifact pins a publisher digest; weights not vendored |
 | Tauri IPC commands, typed events, browser fallback | Working |
 | LiteRT-LM C++ worker source + stdio protocol | Implemented; native compilation blocked (see below) |
-| Live OS audio capture → ASR streaming | Not wired yet; the clean-room DSP crate and event contract are ready for platform adapters |
+| Microphone capture → WAV → on-device transcription | Working (whisper.cpp; post-recording, block-based) |
+| System-audio loopback and speaker diarization | Not implemented; the UI marks both as planned and does not fake them |
 | Signed/notarized distributable | Not produced in this workspace |
 
 The browser preview is fully local: it runs the demo vault and never calls a network API.
@@ -47,9 +48,12 @@ calls fall back to the demo data instead of breaking the UI.
   screenshots, synthesis items, folders, tags, and search snippets ranked with `bm25`.
 - **Screenshot engine** — interval scheduler with a single-session capture lease, dHash
   duplicate suppression, WebP encoding, and relative-path Markdown export.
-- **Model Studio** — hardware tiering, LiteRT model registry, download progress events,
-  resume support, declared-size enforcement, and SHA-256 verification when a digest is
-  configured.
+- **On-device transcription** — microphone capture goes through `cpal` into the clean-room
+  mixer, then a 16 kHz mono WAV that is written while the meeting runs. A finished take is
+  decoded in 30-second blocks and transcribed with whisper.cpp (`whisper-rs`), with silent
+  blocks skipped. No network call is involved.
+- **Model Studio** — hardware tiering, model registry, download progress events, resume
+  support, declared-size enforcement, and mandatory SHA-256 verification.
 - **White-label engine** — one manifest generates Tauri config, capabilities, icons,
   TypeScript, Rust, and CSS tokens. A secondary profile and a restricted runtime override
   prove the contract.
@@ -243,11 +247,13 @@ The protocol and framing limits are documented in
   build-time FFmpeg/ONNX downloads; this repository does not carry that baseline.
 - **M5.4 native worker** — compiling against upstream LiteRT-LM needs Bazel and a multi-GB
   native tree. The C++ source, protocol, and CMake/Bazel scaffolds are committed.
-- **Model weights** — ASR/SLM/diarization artifacts are multi-GB Hugging Face downloads and
-  are not vendored. The downloader and SHA-256 fixture tests are implemented.
-- **Live audio path** — `memo-audio-capture` owns the tested DSP and the event contract is
-  defined, but Core Audio/WASAPI/ALSA adapters and the streaming ASR call path are not yet
-  wired. The studio currently renders the pinned demo vault.
+- **Model weights** — ASR/SLM/diarization artifacts are large Hugging Face downloads and are
+  not vendored. The catalog pins Whisper small/tiny and Gemma E2B/E4B digests; the
+  downloader rejects any byte that does not match.
+- **Audio path** — microphone capture, WAV archival, and post-recording whisper.cpp
+  transcription work on the recorded macOS host. System-audio loopback (ScreenCaptureKit),
+  diarization, and iOS/Android capture plumbing are not implemented. The demo studio still
+  renders the pinned demo vault; real takes appear in **Local recordings** on the dashboard.
 - **Screenshot platforms** — system capture is implemented for macOS; other platforms need
   a backend. Tests use the deterministic synthetic backend.
 - **Distribution** — signing, notarization, updater artifacts, and CI packaging are out of
