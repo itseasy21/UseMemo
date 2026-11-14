@@ -196,6 +196,28 @@ export function recordingStatus() {
   return invokeCommand<RecordingSnapshot | null>("recording_status");
 }
 
+export type MicrophonePermission = "granted" | "denied" | "prompt" | "unsupported";
+
+export type AudioSessionStatus = {
+  configured: boolean;
+  backend: string;
+};
+
+/** Ask for microphone consent before opening the capture backend. */
+export function requestMicrophonePermission() {
+  return invokeCommand<MicrophonePermission>("request_microphone_permission");
+}
+
+/** Activate the platform session (iOS category, Android audio focus). */
+export function configureAudioSession() {
+  return invokeCommand<AudioSessionStatus>("configure_audio_session");
+}
+
+/** Release the platform session after a take, whether it started or not. */
+export function deactivateAudioSession() {
+  return invokeCommand<{ deactivated: boolean }>("deactivate_audio_session");
+}
+
 export function getAudioCapabilities() {
   return invokeCommand<AudioCapabilitiesRecord>("audio_capabilities");
 }

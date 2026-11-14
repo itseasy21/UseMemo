@@ -19,6 +19,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(memo_mobile_audio::init())
         .setup(|app| {
             let (brand, capture, synthesis) = state::production_state_parts()?;
             let state = tauri::async_runtime::block_on(state::AppState::initialize(
@@ -41,6 +42,10 @@ pub fn run() {
             commands::meetings::stop_recording,
             commands::meetings::recording_status,
             commands::meetings::audio_capabilities,
+            commands::mobile::microphone_permission,
+            commands::mobile::request_microphone_permission,
+            commands::mobile::configure_audio_session,
+            commands::mobile::deactivate_audio_session,
             commands::notes::save_notes,
             commands::notes::list_notes,
             commands::transcript::transcribe_meeting,

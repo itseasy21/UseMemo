@@ -2396,6 +2396,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "memo-mobile-audio"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "memoffset"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5244,6 +5255,7 @@ dependencies = [
  "memo-audio-capture",
  "memo-diarize",
  "memo-litert-bridge",
+ "memo-mobile-audio",
  "reqwest 0.12.28",
  "screencapturekit",
  "serde",

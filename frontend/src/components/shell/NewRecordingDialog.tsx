@@ -25,7 +25,15 @@ import { BRAND } from "@/generated/brand";
 import { useAudioLevels, useRecordingStopped } from "@/hooks/use-host-event";
 import { DEMO_MODELS } from "@/lib/demo-data";
 import { formatClock } from "@/lib/format";
-import { createMeeting, getAudioCapabilities, startRecording, stopRecording } from "@/lib/host";
+import {
+  configureAudioSession,
+  createMeeting,
+  deactivateAudioSession,
+  getAudioCapabilities,
+  requestMicrophonePermission,
+  startRecording,
+  stopRecording,
+} from "@/lib/host";
 import { isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -239,6 +247,36 @@ export function NewRecordingDialog() {
     if (!isTauri()) return;
     setStarting(true);
     void (async () => {
+      // Asking before the meeting row exists keeps a denied prompt from
+      // leaving an empty take in the vault. Desktop reports granted here; the
+      // OS prompt happens inside the capture backend.
+      const permission = await requestMicrophonePermission();
+      if (permission !== "granted") {
+        if (attemptRef.current === attempt) {
+          setStarting(false);
+          setStarted(false);
+          pushToast(
+            "Microphone access is off",
+            "Allow microphone access in your device settings, then record again.",
+            "danger",
+          );
+        }
+        return;
+      }
+      const session = await configureAudioSession();
+      if (!session?.configured) {
+        if (attemptRef.current === attempt) {
+          setStarting(false);
+          setStarted(false);
+          pushToast(
+            "Could not prepare the audio session",
+            "Close other audio apps or check the system audio settings, then try again.",
+            "danger",
+          );
+        }
+        return;
+      }
+
       const meeting = await createMeeting({
         title: title.trim() || undefined,
         screenshotIntervalSec: sources.screenshots
@@ -254,11 +292,13 @@ export function NewRecordingDialog() {
       if (attemptRef.current !== attempt) {
         // The dialog was dismissed while the host was preparing the session.
         if (recording) await stopRecording(recording.id);
+        void deactivateAudioSession();
         return;
       }
       setStarting(false);
       if (!meeting || !recording) {
         setStarted(false);
+        void deactivateAudioSession();
         pushToast(
           "Could not start the local recording",
           sources.system
@@ -279,15 +319,21 @@ export function NewRecordingDialog() {
     setStarting(false);
     close();
     if (activeMeeting) {
-      void stopRecording(activeMeeting).then((meeting) => {
-        if (!meeting && notify) {
-          pushToast(
-            "Session is still marked recording",
-            "The host could not finalize it. Reopen the app to recover the session.",
-            "danger",
-          );
-        }
-      });
+      void stopRecording(activeMeeting)
+        .then((meeting) => {
+          if (!meeting && notify) {
+            pushToast(
+              "Session is still marked recording",
+              "The host could not finalize it. Reopen the app to recover the session.",
+              "danger",
+            );
+          }
+        })
+        .finally(() => {
+          void deactivateAudioSession();
+        });
+    } else {
+      void deactivateAudioSession();
     }
     if (notify) {
       pushToast(
