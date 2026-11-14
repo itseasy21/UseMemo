@@ -26,8 +26,8 @@ Licensed under **GPL-3.0-or-later**. See [LICENSE](./LICENSE).
 | Tauri IPC commands, typed events, browser fallback | Working |
 | LiteRT-LM C++ worker source + stdio protocol | Implemented; native compilation blocked (see below) |
 | Microphone capture → WAV → on-device transcription | Working (whisper.cpp; post-recording, block-based) |
-| System-audio loopback | Implemented on macOS (ScreenCaptureKit) with a gated real-capture acceptance; that test skipped on this host because Screen Recording was denied. WASAPI backend type-checks for the Windows target but has not run on a Windows host |
-| Speaker diarization | Working on the loopback archive: on-device acoustic clustering into `Speaker 1…N`, with `You`/`Them` fallbacks. Acoustic clustering, not voice identification |
+| System-audio loopback | Implemented on macOS (ScreenCaptureKit); the gated real-capture acceptance passes on the recorded host. WASAPI backend type-checks for the Windows target but has not run on a Windows host |
+| Speaker diarization | Working on the loopback archive: on-device acoustic clustering into `Speaker 1…N`, with `You`/`Them` fallbacks. Two synthesized voices captured through loopback separate correctly; acoustic clustering, not voice identification |
 | Signed/notarized distributable | Packaging, checksums, and CI are implemented; notarization is not possible on this host because only an Apple Development certificate is installed |
 
 The browser preview is fully local: it runs the demo vault and never calls a network API.
@@ -154,9 +154,9 @@ pnpm test                 # brand + air-gap + entire Rust workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Expected Rust totals on this host: **41** audio-core tests, **8** bridge tests, **17**
-diarization tests, **101** Tauri unit tests, one screenshot/vault acceptance test, and two
-gated real-device tests (ASR and system-audio loopback).
+Expected Rust totals on this host: **41** audio-core tests, **8** bridge tests, **18**
+diarization tests, **101** Tauri unit tests, one screenshot/vault acceptance test, and three
+gated real-device tests (ASR, system-audio loopback, and two-voice diarization).
 
 The screenshot/vault acceptance runs without a display by using the synthetic capture
 backend. macOS system capture is exercised only through the UI.
@@ -170,7 +170,18 @@ MEMO_SYSTEM_AUDIO_E2E=1 cargo test -p use-memo \
 ```
 
 It plays a short tone with `afplay` and asserts that ScreenCaptureKit delivered non-silence.
-Without the grant it skips with instructions instead of failing.
+The gated check now passes on the recorded host; without the grant it skips with
+instructions instead of failing.
+
+The two-voice diarization check uses the same capture path with two synthesized macOS
+voices and asserts that they cluster into `Speaker 1` and `Speaker 2`:
+
+```bash
+MEMO_DIARIZATION_E2E=1 cargo test -p use-memo \
+  --test diarization_acceptance -- --nocapture
+```
+
+It needs the same Screen Recording grant and skips when a voice or the grant is missing.
 
 The Windows backend can be type-checked and linted from macOS (it is pure Rust):
 
@@ -284,13 +295,13 @@ The protocol and framing limits are documented in
   vendored. The catalog pins Whisper small/tiny and Gemma E2B/E4B digests; the downloader
   rejects any byte that does not match. Diarization needs no artifact.
 - **Audio path** — microphone capture, WAV archival, and post-recording whisper.cpp
-  transcription work on the recorded macOS host. macOS system-audio loopback is implemented,
-  but its real-capture acceptance skipped here because Screen Recording was denied to the
-  test process, so runtime capture still needs a grant and a rerun. The WASAPI backend
-  compiles and lints for `x86_64-pc-windows-msvc` via
-  `scripts/check-windows-backend.sh`, but it has not run on a Windows host here. Diarization
-  is acoustic clustering of the loopback (`Speaker N` when voices separate, `Them`
-  otherwise), not voice identification; iOS/Android capture plumbing is not implemented.
+  transcription work on the recorded macOS host. The gated macOS system-audio loopback
+  acceptance now passes on this host; the WASAPI backend compiles and lints for
+  `x86_64-pc-windows-msvc` via `scripts/check-windows-backend.sh` but has not run on a
+  Windows host here. Diarization is acoustic clustering of the loopback (`Speaker N` when
+  voices separate, `Them` otherwise), not voice identification. Two synthesized voices
+  captured through ScreenCaptureKit separate correctly; a real human meeting and
+  overlapping speech remain unverified. iOS/Android capture plumbing is not implemented.
   System audio does not echo-cancel, so headphones are recommended.
   The demo studio still renders the pinned demo vault; real takes appear in **Local
   recordings** on the dashboard.

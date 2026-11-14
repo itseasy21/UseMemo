@@ -120,10 +120,14 @@ pub fn speech_regions(
                 end_frame: cursor,
             },
             hop_ms,
-            frame_ms,
             config,
         );
     }
+
+    // Apply the duration floor after merging. A quieter speaker can arrive as
+    // several sub-second runs separated by breaths; dropping each run before
+    // the merge rule would erase that speaker entirely.
+    regions.retain(|region| region.duration_ms(hop_ms, frame_ms) >= config.min_speech_ms);
     regions
 }
 
@@ -131,12 +135,8 @@ fn push_region(
     regions: &mut Vec<SpeechRegion>,
     region: SpeechRegion,
     hop_ms: u32,
-    frame_ms: u32,
     config: &VadConfig,
 ) {
-    if region.duration_ms(hop_ms, frame_ms) < config.min_speech_ms {
-        return;
-    }
     if let Some(previous) = regions.last_mut() {
         let gap_ms = (region.start_frame - previous.end_frame) as u32 * hop_ms;
         if gap_ms <= config.merge_gap_ms {
@@ -193,6 +193,17 @@ mod tests {
         let energy = frames(&[(-80.0, 50), (-20.0, 20), (-80.0, 50)]);
         let regions = speech_regions(&energy, 10, 25, &VadConfig::default());
         assert!(regions.is_empty());
+    }
+
+    #[test]
+    fn fragments_merge_before_the_duration_floor() {
+        // Two 625 ms runs separated by a 300 ms pause are each too short to
+        // embed, but together they clear the one-second floor.
+        let energy = frames(&[(-20.0, 60), (-70.0, 30), (-20.0, 60)]);
+        let regions = speech_regions(&energy, 10, 25, &VadConfig::default());
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].start_frame, 0);
+        assert_eq!(regions[0].end_frame, 150);
     }
 
     #[test]

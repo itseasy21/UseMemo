@@ -22,15 +22,16 @@ cargo clippy --workspace --all-targets -- -D warnings
 | Air gap (`scripts/airgap.test.ts`) | 5 | No cloud SDK/endpoints, only allowlisted hosts, strict CSP, no browser network primitives |
 | `memo-audio-capture` | 41 | Ring buffers, mixing, resampling, downmix, level metering, WAV writer/reader, PCM formats |
 | `memo-litert-bridge` | 8 | Framing, size cap, request/response serde, worker timeout/error paths |
-| `memo-diarize` | 17 | VAD regions, MFCC finiteness, k-means separation, duration floors, turn alignment |
+| `memo-diarize` | 18 | VAD regions and fragment merging, MFCC finiteness, k-means separation, duration floors, turn alignment |
 | Tauri host | 101 | Storage/FTS, transactional transcript replacement, verifier, parser, export, screenshot policy, models, brand, events, sidecar, dual-channel session, speaker labels |
 | Screenshot/vault acceptance | 1 | Synthetic 35 s session, dedup, WebP export, relative assets, Markdown frontmatter |
 | ASR acceptance | 1 gated | Real whisper.cpp inference over known speech; skips unless a model and WAV are supplied |
 | System-audio acceptance | 1 gated | Real ScreenCaptureKit loopback over a played tone; skips unless enabled and granted |
+| Diarization acceptance | 1 gated | Real ScreenCaptureKit capture of two synthesized voices, then VAD/embedding/clustering; skips unless enabled and granted |
 
 The ASR test is compiled but returns early without `MEMO_ASR_E2E=1`, so the default suite
-stays offline and fast. The system-audio test behaves the same without
-`MEMO_SYSTEM_AUDIO_E2E=1`.
+stays offline and fast. The system-audio and diarization tests behave the same without
+`MEMO_SYSTEM_AUDIO_E2E=1` and `MEMO_DIARIZATION_E2E=1`.
 
 The host was recorded as an Apple M1 Pro / 16 GB / macOS 27.2 / Rust 1.100.0. See
 `build-env.json`.
@@ -140,20 +141,16 @@ with a peak above `0.01`. It skips with instructions when the process lacks Scre
 Recording permission, and it skips if `afplay` is unavailable. The machine must not be
 muted; loopback capture is post-mix.
 
-When it runs, this test proves the macOS backend end to end. On the recorded host it
-skipped because the test process was denied Screen Recording:
+This test proves the macOS backend end to end. It now passes on the recorded host after
+Screen Recording was granted:
 
 ```text
-SKIP system-audio acceptance: capture error: system audio capture needs Screen Recording
-permission. Grant it in System Settings → Privacy & Security → Screen Recording, then restart
-the app. (No shareable content available: Content unavailable: The user declined TCCs for
-application, window, display capture)
+test loopback_captures_playback ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.60s
 ```
 
-The harness handled the denial as designed: actionable message, no failure, no fake audio.
-Grant Screen Recording to the terminal or test host, restart it, and rerun to complete the
-runtime check. Until then, macOS loopback is implemented and unit-tested (downmix, session
-accounting) but not capture-verified on this host.
+On a host without the grant the harness still reports the denial as a skip with
+instructions, never as fake audio.
 
 The WASAPI backend cannot be executed on macOS, but its API usage is checked without a
 Windows machine:
@@ -187,22 +184,44 @@ cargo test -p memo-diarize
 cargo test -p use-memo asr::transcribe::tests::channel_labels_stay_honest_without_diarization
 ```
 
-The crate suite covers VAD region merging and short-click rejection, MFCC finiteness and
-silence energy, k-means separation of two alternating timbres, the single-voice and duration
-floors, and `speaker_at` overlap/nearest-turn alignment. The host test proves the label
-policy: microphone is always `You`, the loopback falls back to `Them` without diarization,
-and a diarized turn becomes `Speaker 2`.
+The crate suite covers VAD region merging (including merging sub-second fragments before
+the duration floor), short-click rejection, MFCC finiteness and silence energy, k-means
+separation of two alternating timbres, the single-voice and duration floors, and
+`speaker_at` overlap/nearest-turn alignment. The host test proves the label policy:
+microphone is always `You`, the loopback falls back to `Them` without diarization, and a
+diarized turn becomes `Speaker 2`.
 
-Automated evidence (synthetic timbres only):
+The real-capture acceptance builds `A, B, A, B` from two macOS voices, plays it through the
+normal output device, captures the loopback with ScreenCaptureKit, resamples the archive to
+16 kHz, and runs the diarizer:
+
+```bash
+MEMO_DIARIZATION_E2E=1 cargo test -p use-memo \
+  --test diarization_acceptance -- --nocapture
+```
+
+Recorded result on the host:
 
 ```text
-cargo test -p memo-diarize       17 passed; 0 failed
+capture: 417920 samples
+diarization: speakers=2 windows=23 speech_ms=20520
+turns=[(990, 5490, 1), (6640, 11845, 2), (12520, 17020, 1), (18100, 23885, 2)]
+test two_voices_are_separated_from_loopback_audio ... ok
+```
+
+The acceptance found a real VAD bug: sub-second speech fragments were discarded before the
+merge rule, which erased the quieter voice. Fragments now merge before the duration floor.
+
+Automated evidence:
+
+```text
+cargo test -p memo-diarize       18 passed; 0 failed
 cargo test (label_for)           ok
 ```
 
-Not verified on this host: a real two-voice meeting, crosstalk/overlap, and music/noise
-beds. Diarization is acoustic clustering, not voice identification; short or overlapping
-speech stays `Them`.
+This is synthesized speech, not a human meeting. A real two-voice recording,
+crosstalk/overlap, and music/noise beds remain unverified. Diarization is acoustic
+clustering, not voice identification; short or overlapping speech stays `Them`.
 
 ## M4.6 / M5 / M6 — host and UI gates
 

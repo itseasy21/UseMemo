@@ -30,14 +30,14 @@ After the M7 closeout, the real capture → transcription path was implemented a
 | Recording lifecycle | Capture starts before the DB marks recording; rollback on failure; `recording:stopped` carries silence/overrun facts |
 | ASR engine | whisper.cpp via `whisper-rs 0.16`, behind an `AsrEngine` trait; CPU-only, logs suppressed |
 | Transcription | 30 s blocks, silence skipping, transactional transcript replacement, `asr:progress` |
-| System audio | macOS ScreenCaptureKit audio-only tap → independent `audio-system.wav`; WASAPI backend type-checks for the Windows target, not run here |
+| System audio | macOS ScreenCaptureKit audio-only tap → independent `audio-system.wav`; the gated real-capture acceptance passes on the recorded host. WASAPI backend type-checks for the Windows target, not run here |
 | Channel merge | Both archives decoded on one clock; microphone `You`, loopback `Them`; renumbered `seq_no` |
 | Speaker diarization | Clean-room VAD + MFCC embeddings + deterministic k-means over the loopback archive; `Speaker N` only when voices separate, `Them` otherwise; CPU-only, no model download |
 | Diarization toggle | `meetings.diarization_enabled` (migration 0003), default on; `speakerCount` returned with the transcription outcome |
 | Model integrity | `ModelFile.sha256` is mandatory; real Whisper and Gemma digests pinned |
 | macOS permission | `NSMicrophoneUsageDescription` + audio-input entitlement generated into the bundle; Screen Recording requested for loopback |
 | UI | Local recordings panel lists real takes, shows transcripts, and runs transcription with progress; the new-recording dialog probes `audio_capabilities` and meters both channels |
-| Honesty | Diarization is acoustic clustering of the loopback, not voice identification; short or overlapping speech stays `Them`; echo cancellation is explicitly absent; Windows loopback and the macOS runtime capture (TCC denied here) are marked unverified |
+| Honesty | Diarization is acoustic clustering of the loopback, not voice identification; short or overlapping human speech stays `Them`; echo cancellation is explicitly absent; Windows loopback remains unverified. The macOS runtime capture and a two-synthesized-voice diarization acceptance now pass on this host |
 
 Real-model evidence:
 
@@ -55,12 +55,15 @@ speech becomes `Speaker 1`, `Speaker 2`, … only when the clustering separates 
 it stays `Them`. The per-meeting toggle is persisted and the outcome reports `speakerCount`.
 
 ```text
-cargo test -p memo-diarize       17 passed
+cargo test -p memo-diarize       18 passed
 cargo test (label_for)           microphone You · system Them · diarized Speaker 2
+MEMO_DIARIZATION_E2E=1 ...       two synthesized voices → Speaker 1/2 over ScreenCaptureKit
 ```
 
-The tests use synthetic alternating timbres. A real two-voice meeting, crosstalk, and
-music/noise beds are not verified on this host.
+The loopback acceptance found and fixed a real VAD bug: sub-second speech fragments were
+dropped before the merge rule, which erased a quieter speaker. Fragments now merge before
+the duration floor. The tests still use synthesized speech; a real human two-voice meeting,
+crosstalk, and music/noise beds are not verified on this host.
 
 ## Packaging slice (M8.14)
 
@@ -87,8 +90,9 @@ pnpm brand:check   Brand outputs are current for Use Memo.
 pnpm brand:test    13 passed
 pnpm package:test  8 passed
 pnpm airgap:test   5 passed
-cargo test         41 audio + 8 bridge + 17 diarization + 101 host + 3 acceptance (2 gated skip by default)
-MEMO_SYSTEM_AUDIO_E2E=1 ...  skipped: Screen Recording denied to the test process
+cargo test         41 audio + 8 bridge + 18 diarization + 101 host + 4 acceptance (3 gated skip by default)
+MEMO_SYSTEM_AUDIO_E2E=1 ...  test loopback_captures_playback ... ok
+MEMO_DIARIZATION_E2E=1 ...   test two_voices_are_separated_from_loopback_audio ... ok
 pnpm typecheck     clean
 pnpm build         12 static pages exported
 prettier --check   clean
@@ -96,7 +100,7 @@ cargo fmt --check  clean
 cargo clippy ...   Finished with -D warnings (host + audio crate)
 ```
 
-That is **196 automated checks** (26 TypeScript/Node, 170 Rust), including one gated ASR
+That is **198 automated checks** (26 TypeScript/Node, 172 Rust), including one gated ASR
 acceptance that ran with a real 190 MB Whisper model and produced the transcript above.
 The manual native and browser fallback checklists are in [acceptance.md](./acceptance.md).
 

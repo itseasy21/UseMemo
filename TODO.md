@@ -97,15 +97,16 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M8.9 Real-model ASR acceptance (`MEMO_ASR_E2E=1`) and Local recordings UI
 - [x] M8.10 Documentation honesty pass (README, architecture, blockers, acceptance, delivery)
 - [x] M8.11 System-audio loopback
-      - macOS: ScreenCaptureKit audio-only tap → `audio-system.wav`; gated `MEMO_SYSTEM_AUDIO_E2E=1` acceptance (skipped here because Screen Recording was denied)
+      - macOS: ScreenCaptureKit audio-only tap → `audio-system.wav`; gated `MEMO_SYSTEM_AUDIO_E2E=1` acceptance passes on the recorded host
       - Windows: WASAPI loopback backend written; type-checks and lints for `x86_64-pc-windows-msvc` from macOS, but has not run on a Windows host here
       - Transcript merges both archives on one clock with `You`/`Them` channel labels; `audio_capabilities` drives the UI toggle
       - Echo cancellation intentionally absent; headphones recommended
 - [x] M8.12 Speaker diarization (segmentation + embedding + clustering)
-      - Clean-room `memo-diarize`: energy VAD → MFCC mean/std embeddings → deterministic k-means with separation/duration gates; 17 tests
+      - Clean-room `memo-diarize`: energy VAD → MFCC mean/std embeddings → deterministic k-means with separation/duration gates; 18 tests
       - Post-hoc on the loopback archive only; the microphone stays `You`, one remote voice stays `Them`, and separable voices become `Speaker N`
       - Per-meeting toggle (`diarization_enabled`, migration 0003) and `speakerCount` in the transcription outcome
-      - Verified on synthetic timbres; a real two-voice meeting, crosstalk, and music/noise beds remain unverified
+      - VAD merges sub-second fragments before the duration floor, so a quieter speaker is not dropped; the loopback acceptance found and covers that case
+      - Verified on synthetic timbres and on two synthesized macOS voices captured through ScreenCaptureKit (gated `MEMO_DIARIZATION_E2E=1`); a real human meeting, crosstalk, and music/noise beds remain unverified
 - [ ] M8.13 iOS/Android audio-session and permission plumbing
 - [x] M8.14 Packaging, local signing, checksums, and CI
       - `pnpm package:release` builds/stages DMG/MSI/AppImage-family installers, verifies the macOS signature and audio-input entitlement, and writes `SHA256SUMS.txt` plus `release-manifest.json`

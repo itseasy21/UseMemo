@@ -80,9 +80,8 @@ writes `audio-system.wav` at 16 kHz mono beside the microphone archive. The stop
 persists both paths plus the tap's start offset, and transcription merges the two archives
 on one timeline, labelling microphone segments `You` and loopback segments `Them` unless
 post-hoc diarization separates the remote voices into `Speaker N`. The
-opt-in `MEMO_SYSTEM_AUDIO_E2E=1` acceptance plays a real tone and asserts non-silence. On
-the recorded host it skipped because Screen Recording was denied to the test process, so
-the runtime path still needs that grant and a rerun.
+opt-in `MEMO_SYSTEM_AUDIO_E2E=1` acceptance plays a real tone and asserts non-silence. It
+now passes on the recorded host with Screen Recording granted.
 
 **Windows is written but not run here.** The `wasapi` 0.27 loopback backend is compiled
 only on Windows. `scripts/check-windows-backend.sh` type-checks and lints the module for
@@ -105,8 +104,10 @@ over the system track. Voices become `Speaker N` only when the clustering separa
 short, overlapping, or single-voice audio stays `Them`. This is acoustic clustering, not
 voice identification: no voiceprint is stored or matched across meetings, and the
 microphone stays `You`. The pipeline is CPU-only and needs no model download. The crate's
-17 tests use synthetic alternating timbres; a real two-voice call and overlapping speech
-have not been verified on this host.
+18 tests cover synthetic alternating timbres, and a gated acceptance now captures two
+synthesized macOS voices through ScreenCaptureKit and separates them. A real human
+two-voice call, overlapping speech, and music/noise beds have not been verified on this
+host.
 
 **Still not implemented:**
 
