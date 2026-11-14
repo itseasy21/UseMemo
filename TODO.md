@@ -68,7 +68,7 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
 - [x] M6.3 View 2: synchronized 3-pane meeting studio (notes, transcript, filmstrip)
 - [x] M6.4 View 3: detached floating recording HUD route
 - [x] M6.5 View 4: synthesis bento canvas with evidence chips + bidirectional highlight state
-- [ ] M6.6 View 5: LiteRT model manager / hardware studio
+- [x] M6.6 View 5: LiteRT model manager / hardware studio
 - [ ] M6.7 UI typecheck + production static build
 
 ## M7 — Verification & delivery
