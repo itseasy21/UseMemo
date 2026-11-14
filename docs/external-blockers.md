@@ -111,25 +111,37 @@ host.
 
 ## Mobile capture
 
-**Permission and session plumbing is implemented; native builds are blocked.** The
-first-party `memo-mobile-audio` Tauri plugin requests microphone consent, declares the
+**Android is compiled and the permission/session/capture path is verified on an emulator.**
+The first-party `memo-mobile-audio` Tauri plugin requests microphone consent, declares the
 Android permissions, holds transient Android audio focus, and activates/deactivates the
 iOS `AVAudioSession`. `Info.ios.plist` is generated with the mandatory microphone usage
 string and `UIBackgroundModes: audio`, and the recording dialog asks before creating a
 meeting. Desktop uses a no-op implementation, and the plugin's wire models have tests.
 
-**Blocked on this host:** there is no Xcode or iPhoneOS SDK, the Android NDK download did
-not complete, and no Android device/emulator is attached. `tauri android init` stops at
-`Android NDK not found`. The Kotlin and Swift sources have not been compiled or run; only
-Swift parsing, plist lint, and manifest lint were checked.
+**Android evidence (API 36, arm64-v8a emulator):** the native prompt offered
+`WHILE USING THE APP`; granting it returned `granted=true` and the dialog advanced to
+`capturing`. Android logged a `GAIN_TRANSIENT_EXCLUSIVE` request with
+`USAGE_VOICE_COMMUNICATION`, a `VOICE_RECOGNITION` recording activity, a completed
+`meetings` row, a valid 16 kHz mono 16-bit WAV, and `abandonAudioFocus` after stop. The
+emulator input was near-silent (99.53% zero samples, peak 8 LSB), so this proves the native
+plumbing, not audible capture quality.
 
-**Unblock:** install full Xcode and the iPhoneOS SDK for iOS; install an Android NDK
-(r29+) and set `NDK_HOME` for Android; then run the init/build commands in
-[mobile.md](./mobile.md) and perform the consent, Bluetooth, interruption, and background
-recording checks on real devices.
+**Still blocked:** iOS native compilation/runtime; a physical Android device; audible
+microphone input; Bluetooth routing; audio interruptions and background recording. The test
+APK was built without ASR (`--no-default-features` workaround for a `whisper-rs-sys`
+host-BLAS cross-compile failure), so transcription and a production Android ASR build
+remain unverified.
+
+**Unblock:** provide an iPhoneOS SDK and a signing team for iOS; repeat the consent,
+Bluetooth, interruption, and background checks on physical Android hardware; fix the
+`whisper-rs-sys` Android build so ASR is in the APK. The build and runtime steps are in
+[mobile.md](./mobile.md).
 
 **Still not implemented:**
 
+- **Android system audio and screenshots.** The mobile capture path is microphone-only;
+  automatic screenshots return a typed not-implemented error. The audio take continues
+  without either source.
 - **Streaming ASR.** Transcription intentionally runs after the take. Live caption deltas
   would require a streaming decoder and a second model state; the UI does not claim them.
 

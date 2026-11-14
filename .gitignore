@@ -33,6 +33,8 @@ brand/brand.override.json
 crates/memo-litert-bridge/build/
 crates/memo-litert-bridge/**/*.o
 crates/memo-litert-bridge/**/*.a
+crates/memo-mobile-audio/android/.tauri/
+crates/memo-mobile-audio/android/build/
 .DS_Store
 
 # Editor

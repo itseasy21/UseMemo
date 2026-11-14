@@ -249,10 +249,35 @@ plutil -lint Info.ios.plist       OK
 xmllint AndroidManifest.xml       OK
 ```
 
-Not verified here: native compilation and device capture. The host has no Xcode or
-iPhoneOS SDK, the Android NDK install did not finish, and no device/emulator is attached.
-`tauri android init` stops at `Android NDK not found`. See [mobile.md](./mobile.md) for the
-build steps and the remaining checks.
+### M8.13a — Android emulator runtime
+
+The arm64 debug APK was compiled with NDK 29.0.14206865 and run on an API 36 arm64-v8a
+emulator. The first-run permission state was reset with `pm revoke` plus
+`pm clear-permission-flags`, then the UI was driven through the real "New recording" flow.
+
+```text
+Android permission prompt        Allow Use Memo to record audio?
+granted choice                  WHILE USING THE APP
+RECORD_AUDIO                    granted=true
+audio focus                     GAIN_TRANSIENT_EXCLUSIVE; usage=VOICE_COMMUNICATION
+recording activity              VOICE_RECOGNITION active, then stopped
+capture result                  recording dialog advanced to "capturing"
+meeting row                     completed; duration 44573 ms
+WAV                             RIFF/WAVE PCM, mono, 16000 Hz, 16-bit; 1,330,220 data bytes
+focus release                   abandonAudioFocus logged after stop
+emulator signal                 99.53% zero samples, peak 8 LSB (near-silence)
+```
+
+The single-window `tauri.android.conf.json` is required for this path: with the desktop
+`main` + `hud` window list, Android created a second WebView and native IPC replies lost
+their callback IDs, leaving the UI stuck on "preparing local capture…".
+
+The test APK was built with `--no-default-features` through a local wrapper because the
+`whisper-rs-sys` build selected a host BLAS library during Android cross-compilation. It
+therefore has **no ASR**; transcription was not exercised. A physical device with audible
+microphone input, Bluetooth/interruption/background checks, and a production Android build
+that includes ASR remain unverified. iOS native compilation/runtime is still unverified.
+See [mobile.md](./mobile.md) for the build steps and the remaining checks.
 
 ## M4.6 / M5 / M6 — host and UI gates
 

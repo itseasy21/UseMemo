@@ -28,7 +28,7 @@ Licensed under **GPL-3.0-or-later**. See [LICENSE](./LICENSE).
 | Microphone capture → WAV → on-device transcription | Working (whisper.cpp; post-recording, block-based) |
 | System-audio loopback | Implemented on macOS (ScreenCaptureKit); the gated real-capture acceptance passes on the recorded host. WASAPI backend type-checks for the Windows target but has not run on a Windows host |
 | Speaker diarization | Working on the loopback archive: on-device acoustic clustering into `Speaker 1…N`, with `You`/`Them` fallbacks. Two synthesized voices captured through loopback separate correctly; acoustic clustering, not voice identification |
-| Mobile capture | Permission/session plugin and generated iOS plist are in place; native Android/iOS compilation and device runtime are not verified here (no Xcode/iOS SDK, NDK/device) |
+| Mobile capture | Android arm64 permission/session/capture path verified on an API 36 emulator; iOS, physical-device behavior, audible signal, and ASR in the test APK remain unverified |
 | Signed/notarized distributable | Packaging, checksums, and CI are implemented; notarization is not possible on this host because only an Apple Development certificate is installed |
 
 The browser preview is fully local: it runs the demo vault and never calls a network API.
@@ -303,10 +303,10 @@ The protocol and framing limits are documented in
   Windows host here. Diarization is acoustic clustering of the loopback (`Speaker N` when
   voices separate, `Them` otherwise), not voice identification. Two synthesized voices
   captured through ScreenCaptureKit separate correctly; a real human meeting and
-  overlapping speech remain unverified. Mobile permission/session plumbing is implemented,
-  but native Android/iOS builds and device capture are blocked here; see
-  [docs/mobile.md](./docs/mobile.md). System audio does not echo-cancel, so headphones are
-  recommended.
+  overlapping speech remain unverified. Android arm64 permission/session/capture is compiled
+  and verified on an emulator; iOS, physical-device behavior, audible signal, and ASR in the
+  test APK remain unverified; see [docs/mobile.md](./docs/mobile.md). System audio does not
+  echo-cancel, so headphones are recommended.
   The demo studio still renders the pinned demo vault; real takes appear in **Local
   recordings** on the dashboard.
 - **Screenshot platforms** — system capture is implemented for macOS; other platforms need

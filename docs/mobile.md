@@ -10,10 +10,14 @@ separates what is implemented from what has actually been compiled and run.
   `Info.ios.plist`, and the recording-dialog consent/session flow.
 - **Verified here:** the plugin's Rust wire models and desktop no-op (5 tests), TypeScript
   typecheck, `swiftc -parse` on the Swift source, `plutil -lint` on the plist, `xmllint`
-  on the Android manifest, and the full desktop gate.
-- **Not verified here:** native compilation and device capture. This host has no Xcode or
-  iPhoneOS SDK; the Android NDK download did not complete; and no Android device or
-  emulator is attached. `tauri android init` currently stops at `Android NDK not found`.
+  on the Android manifest, and the full desktop gate. The Android arm64 debug APK was also
+  compiled and run on an API 36 emulator: the native microphone prompt, transient-exclusive
+  audio focus, capture start, WAV/SQLite finalization, and focus release all completed.
+- **Not verified here:** iOS native compilation/runtime, a physical Android device, audible
+  microphone input (the emulator input was near-silence), Bluetooth/interruption/background
+  recording, and ASR in the Android test APK. The test APK was built with
+  `--no-default-features` through a local wrapper to avoid a `whisper-rs-sys` host-BLAS
+  cross-compile failure; it intentionally has no speech engine.
 
 ## Recording flow
 
@@ -40,6 +44,13 @@ leave an empty take in the vault.
   `PermissionState` to `granted` / `denied` / `prompt`.
 - The session requests transient-exclusive audio focus so other playback does not bleed
   into the microphone. Focus is advisory: capture still proceeds if the request is denied.
+- The Android build is configured for a single `main` WebView via
+  `frontend/src-tauri/tauri.android.conf.json`. The desktop `main` + `hud` list created a
+  second WebView on Android and broke native IPC callback delivery.
+- Android app UIDs have no passwd/HOME entry, so startup seeds `XDG_DATA_HOME` and
+  `XDG_CACHE_HOME` from Tauri's app directories before storage initializes.
+- Android capture is microphone-only. System-audio loopback and automatic screenshots
+  return typed not-implemented errors; the take continues without them.
 - `deactivate_audio_session` abandons the focus request.
 
 ### iOS
@@ -82,6 +93,19 @@ Install to a device or emulator with:
 pnpm --filter @use-memo/frontend tauri android dev
 ```
 
+The checked runtime used an arm64 target:
+
+```bash
+pnpm --filter @use-memo/frontend tauri android build --debug --apk --target aarch64 --ci
+adb install -r frontend/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+```
+
+The arm64 APK was built with NDK 29.0.14206865 and SDK platform 36. The test APK was built
+with `--no-default-features` through a local Cargo wrapper because `whisper-rs-sys` selected
+a host BLAS library during cross-compilation; it therefore has no ASR. Those build hacks
+were local to the verification host and are not committed. A production Android ASR build
+still needs that dependency fixed and a checked-in build recipe.
+
 ### iOS
 
 Prerequisites: full Xcode (not only Command Line Tools), an iOS SDK, and a development
@@ -112,19 +136,27 @@ cargo test -p memo-mobile-audio   5 passed; 0 failed
 xcrun swiftc -parse ...           ok
 plutil -lint Info.ios.plist       OK
 xmllint AndroidManifest.xml       OK
+Android arm64 debug APK           built; installed on API 36 arm64-v8a
+native permission prompt          WHILE USING THE APP -> RECORD_AUDIO granted
+audio focus                       GAIN_TRANSIENT_EXCLUSIVE request -> abandon
+capture/finalize                  16 kHz mono WAV; completed SQLite meeting
+automatic screenshot              typed not-implemented error; take continued
+emulator signal                   99.53% zero samples; peak 8 LSB (near-silence)
 ```
 
-These checks do not compile the Kotlin or Swift plugin code against the real mobile
-frameworks. That requires the native projects and toolchains above.
+The emulator run proves the native permission, session, capture, and finalization
+plumbing, not audible capture quality. The WAV header was valid (RIFF/WAVE, PCM, mono,
+16 kHz, 16-bit) but the input was near-silent.
 
 ## Remaining blockers
 
-- **iOS:** install Xcode and the iPhoneOS SDK. Command Line Tools alone cannot build the
-  Xcode project.
-- **Android:** finish an NDK install, set `NDK_HOME`, and provide a device or emulator for
-  the runtime check. The NDK download exceeded this session's limit.
-- **Runtime behavior:** consent dialogs, audio-session interruption/resumption, Bluetooth
-  routing, and background recording still need a device acceptance pass.
+- **iOS:** the native plugin has not been compiled or run; the host environment is not set
+  up with a usable iPhoneOS SDK and signing team.
+- **Android:** a physical device with audible microphone input is still required; the
+  emulator run was near-silent. Bluetooth routing, interruptions, and background recording
+  are also unverified. The test APK has no ASR; see the build note above.
+- **Runtime behavior:** audio-session interruption/resumption, Bluetooth routing, and
+  background recording still need a device acceptance pass.
 
 See [acceptance.md](./acceptance.md#m813--mobile-permissions-and-audio-sessions) and
 [external-blockers.md](./external-blockers.md#mobile-capture).

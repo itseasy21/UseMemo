@@ -81,11 +81,17 @@ xcrun swiftc -parse ...           ok
 plutil -lint Info.ios.plist       OK
 ```
 
-Native compilation and device capture are **not verified**. This host has no Xcode or
-iPhoneOS SDK, the Android NDK install did not complete, and no device/emulator is attached;
-`tauri android init` reports `Android NDK not found`. The Swift source was parse-checked and
-the plist/manifest were linted, but neither native plugin was compiled against the mobile
-frameworks. See [mobile.md](./mobile.md).
+The Android arm64 plugin is compiled and the emulator runtime path is verified. A single
+`main` WebView (`tauri.android.conf.json`) is required because the desktop HUD window broke
+Android IPC callback delivery. With NDK 29.0.14206865 on an API 36 arm64-v8a emulator, the
+native `WHILE USING THE APP` consent returned `granted=true`; the dialog reached `capturing`;
+Android logged transient-exclusive focus and a `VOICE_RECOGNITION` activity; stopping
+produced a completed SQLite meeting and a valid 16 kHz mono WAV; focus was abandoned after
+stop. The emulator input was near-silent (99.53% zero samples), so audible capture quality is
+not proven. The test APK was built with `--no-default-features` to bypass a
+`whisper-rs-sys` host-BLAS cross-compile failure and has no ASR. iOS, physical devices,
+Bluetooth/interruption/background behavior, and a production Android ASR build remain
+unverified. See [mobile.md](./mobile.md).
 
 ## Packaging slice (M8.14)
 
@@ -175,9 +181,10 @@ Documented in [external-blockers.md](./external-blockers.md):
 - M5.4 native LiteRT-LM worker compilation (Bazel + multi-GB upstream tree).
 - Model weights (not vendored; every catalog digest is pinned).
 - System-audio Windows runtime verification (the WASAPI backend compiles and lints for the
-  Windows target but has not run on a Windows host here), mobile native compilation/runtime
-  (permission/session plumbing is implemented), cross-platform screenshot backends, OCR,
-  and Developer ID notarization (the packaging and local-signing path is implemented).
+  Windows target but has not run on a Windows host here), iOS/physical-device mobile runtime
+  (the Android arm64 emulator path is verified), audible microphone quality, a production
+  Android ASR build, cross-platform screenshot backends, OCR, and Developer ID notarization
+  (the packaging and local-signing path is implemented).
 
 ## Reproduce
 

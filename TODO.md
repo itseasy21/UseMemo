@@ -111,7 +111,11 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
       - First-party `memo-mobile-audio` Tauri plugin: Android `RECORD_AUDIO` consent, manifest permission, and transient audio focus; iOS record permission, `AVAudioSession` `.playAndRecord`, and session release
       - Generated `Info.ios.plist` with `NSMicrophoneUsageDescription` and `UIBackgroundModes: audio`; the recording dialog requests consent and activates/releases the session before/after capture
       - Desktop is a no-op; 5 plugin tests pass
-- [!] M8.13a Compile and run mobile capture on a device — blocked on Xcode/iPhoneOS SDK, a completed Android NDK install, and an Android device/emulator
+- [x] M8.13a Compile and run mobile capture on a device
+      - Android arm64 debug APK built with NDK r29 and run on an API 36 arm64 emulator; Android is limited to one `main` WebView because the desktop HUD window broke native IPC callback delivery
+      - Native `RECORD_AUDIO` prompt verified end to end after resetting permission flags; consent returned `granted=true`, then the session reached `capturing`
+      - Transient-exclusive audio focus, 16 kHz mono WAV, completed SQLite meeting row, and focus release verified after stop
+      - Remaining limits: physical Android device, audible microphone signal (the emulator input was near-silent), iOS, Bluetooth/interruption/background recording, and ASR in this test APK
 - [x] M8.14 Packaging, local signing, checksums, and CI
       - `pnpm package:release` builds/stages DMG/MSI/AppImage-family installers, verifies the macOS signature and audio-input entitlement, and writes `SHA256SUMS.txt` plus `release-manifest.json`
       - Generated `Info.plist` and `signingIdentity: "-"` produce valid ad-hoc, hardened-runtime local bundles; `APPLE_SIGNING_IDENTITY` overrides the config for Developer ID builds
@@ -128,7 +132,8 @@ Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in pro
   Every catalog artifact pins a publisher SHA-256; the downloader verifies it and deletes a
   mismatched partial file.
 - System-audio loopback is implemented for macOS and type-checks for the Windows target
-  (runtime unverified there). Mobile permission/session plumbing is implemented, but native
-  mobile compilation/runtime and Developer ID notarization remain blocked; the local
+  (runtime unverified there). Android arm64 microphone capture is compiled and verified on
+  an emulator; iOS, physical-device behavior, audible-signal quality, and a production
+  Android ASR build remain unverified. Developer ID notarization remains blocked; the local
   packaging path is documented in `docs/packaging.md` and the blockers in
   `docs/external-blockers.md`.

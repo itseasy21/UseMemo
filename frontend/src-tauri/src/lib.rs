@@ -21,6 +21,21 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(memo_mobile_audio::init())
         .setup(|app| {
+            #[cfg(target_os = "android")]
+            {
+                // Android app UIDs have no passwd/HOME entry for `dirs`, so seed
+                // the XDG roots from Tauri's native app directories.
+                if std::env::var_os("XDG_DATA_HOME").is_none() {
+                    if let Ok(path) = app.path().app_data_dir() {
+                        std::env::set_var("XDG_DATA_HOME", path);
+                    }
+                }
+                if std::env::var_os("XDG_CACHE_HOME").is_none() {
+                    if let Ok(path) = app.path().app_cache_dir() {
+                        std::env::set_var("XDG_CACHE_HOME", path);
+                    }
+                }
+            }
             let (brand, capture, synthesis) = state::production_state_parts()?;
             let state = tauri::async_runtime::block_on(state::AppState::initialize(
                 brand, capture, synthesis,
