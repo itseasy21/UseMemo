@@ -19,8 +19,26 @@ const FACETIME_APP: &str = "com.apple.FaceTime";
 struct AudioClient {
     reported_id: Option<String>,
     app_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_boolish")]
     input_active: bool,
+    #[serde(deserialize_with = "deserialize_boolish")]
     output_active: bool,
+}
+
+fn deserialize_boolish<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Boolish {
+        Bool(bool),
+        Integer(i64),
+    }
+    match Boolish::deserialize(deserializer)? {
+        Boolish::Bool(value) => Ok(value),
+        Boolish::Integer(value) => Ok(value != 0),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -609,5 +627,17 @@ mod tests {
             running_apps: vec![],
         };
         assert!(active_apps(&snapshot).is_empty());
+    }
+
+    #[test]
+    fn native_snapshot_accepts_boolean_and_integer_activity_flags() {
+        for value in ["true", "1"] {
+            let json = format!(
+                r#"{{"supported":true,"backend":"test","clients":[{{"reportedId":"com.google.Chrome","appId":"com.google.Chrome","inputActive":{value},"outputActive":0}}],"runningApps":[]}}"#
+            );
+            let snapshot: SignalSnapshot = serde_json::from_str(&json).unwrap();
+            assert!(snapshot.clients[0].input_active);
+            assert!(!snapshot.clients[0].output_active);
+        }
     }
 }

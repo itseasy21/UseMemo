@@ -129,8 +129,8 @@ int32_t memo_macos_call_signal_snapshot(char **out_json, char **out_error) {
                     @"pid": @(pid),
                     @"reportedId": reported ?: [NSNull null],
                     @"appId": owner ?: [NSNull null],
-                    @"inputActive": @(input == 1),
-                    @"outputActive": @(output == 1),
+                    @"inputActive": [NSNumber numberWithBool:(input != 0)],
+                    @"outputActive": [NSNumber numberWithBool:(output != 0)],
                 }];
             }
             free(objects);

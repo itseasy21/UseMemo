@@ -79,6 +79,12 @@ pub fn setup_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         Some("CmdOrCtrl+Q"),
     )?;
 
+    // CoreAudio device enumeration may trigger the microphone permission prompt.
+    // On macOS, wait until the user explicitly opens recording setup instead of
+    // asking for microphone access merely because the app launched.
+    #[cfg(target_os = "macos")]
+    let hw_mics: Vec<String> = Vec::new();
+    #[cfg(not(target_os = "macos"))]
     let hw_mics = memo_audio_capture::microphone::list_input_devices().unwrap_or_default();
     let mut mic_check_items: Vec<(String, String, CheckMenuItem<Wry>)> = Vec::new();
 
