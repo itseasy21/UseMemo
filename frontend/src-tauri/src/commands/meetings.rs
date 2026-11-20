@@ -688,7 +688,7 @@ pub fn audio_capabilities_for(state: &AppState) -> AudioCapabilities {
         system_backend: system_audio_backend().map(str::to_string),
         system_audio_permission_required: cfg!(target_os = "macos") && supported,
         system_audio_permission_granted: system_audio_permission_granted(),
-        screenshot_capture: state.capture.is_supported(),
+        screenshot_capture: state.capture.is_supported() && system_audio_permission_granted(),
         diarization: true,
         echo_cancellation: false,
         archive_sample_rate: ARCHIVE_SAMPLE_RATE,

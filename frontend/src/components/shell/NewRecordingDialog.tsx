@@ -36,6 +36,7 @@ import {
   configureAudioSession,
   createMeeting,
   deactivateAudioSession,
+  deleteMeeting,
   getAudioCapabilities,
   listCaptureTargets,
   listModels,
@@ -393,6 +394,7 @@ export function NewRecordingDialog() {
     if (!isTauri()) return;
     setStarting(true);
     void (async () => {
+      let pendingMeetingId: string | null = null;
       try {
         const permission = await requestMicrophonePermission();
         if (permission !== "granted") {
@@ -427,6 +429,7 @@ export function NewRecordingDialog() {
         if (!meeting) {
           throw new Error("Could not create local meeting record.");
         }
+        pendingMeetingId = meeting.id;
         let captureTarget: CaptureTargetInput = { kind: "auto" };
         if (selectedTargetKey.startsWith("display:")) {
           const id = Number(selectedTargetKey.slice("display:".length));
@@ -440,6 +443,7 @@ export function NewRecordingDialog() {
           microphoneDevice: selectedMic || null,
           captureTarget,
         });
+        pendingMeetingId = null;
         if (attemptRef.current !== attempt) {
           if (recording) await stopRecording(recording.meeting.id);
           void deactivateAudioSession();
@@ -452,6 +456,13 @@ export function NewRecordingDialog() {
         setMeetingId(recording.meeting.id);
         setCaptureWarning(recording.systemAudioWarning);
       } catch (error) {
+        if (pendingMeetingId) {
+          try {
+            await deleteMeeting(pendingMeetingId);
+          } catch {
+            // The host also removes failed starts; a missing row is expected.
+          }
+        }
         if (attemptRef.current === attempt) {
           setStarting(false);
           setStarted(false);
