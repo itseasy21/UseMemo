@@ -1,6 +1,7 @@
 pub mod asr;
 pub mod audio;
 pub mod brand;
+pub mod call_detection;
 pub mod commands;
 pub mod error;
 pub mod events;
@@ -54,25 +55,34 @@ pub fn run() {
                     "could not register runtime asset_protocol_scope directory"
                 );
             }
+            let call_detection_settings = state.paths.data_dir.join("call-detection.json");
             app.manage(state);
+            let call_detection = std::sync::Arc::new(call_detection::CallDetectionState::load(
+                call_detection_settings,
+            ));
+            app.manage(call_detection.clone());
+            call_detection::start(app.handle(), call_detection);
             #[cfg(desktop)]
             if let Err(error) = tray::setup_tray(app) {
                 tracing::warn!(error = %error, "could not initialize system tray menu");
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
+        .on_window_event(|_window, _event| {
             #[cfg(target_os = "macos")]
-            if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            if _window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = _event {
                     api.prevent_close();
-                    let _ = window.hide();
+                    let _ = _window.hide();
                 }
             }
         })
         .invoke_handler(tauri::generate_handler![
             commands::brand::get_brand_config,
             commands::brand::get_brand_manifest,
+            commands::call_detection::call_detection_status,
+            commands::call_detection::set_call_detection_enabled,
+            commands::call_detection::set_call_detection_app_enabled,
             commands::diagnostics::get_diagnostics_summary,
             commands::diagnostics::export_diagnostics,
             commands::meetings::create_meeting,

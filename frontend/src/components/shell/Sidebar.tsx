@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { Avatar } from "@/components/ui/Avatar";
+import { CallDetectionToggle } from "@/components/shell/CallDetectionToggle";
 import { Button } from "@/components/ui/Button";
 import { BRAND } from "@/generated/brand";
 import { useMeetingChanged } from "@/hooks/use-host-event";
@@ -409,6 +410,7 @@ export function SidebarSheetContent({ onClose }: { onClose?: () => void }) {
             >
               Manage AI Models
             </Link>
+            <CallDetectionToggle />
           </div>
         )}
       </div>

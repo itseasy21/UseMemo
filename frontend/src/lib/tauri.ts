@@ -164,6 +164,19 @@ export type TrayMicrophonePayload = {
   label: string;
 };
 
+export type CallDetectedPayload = {
+  callId: string;
+  appId: string;
+  appName: string;
+  confidence: number;
+};
+
+export type CallEndedPayload = {
+  callId: string;
+  appId: string;
+  appName: string;
+};
+
 export type HostEventMap = {
   "audio:levels": AudioLevelsPayload;
   "asr:segment-delta": AsrSegmentDeltaPayload;
@@ -175,6 +188,9 @@ export type HostEventMap = {
   "recording:stopped": RecordingStoppedPayload;
   "tray:action": TrayActionPayload;
   "tray:microphone-changed": TrayMicrophonePayload;
+  "call-detect://started": CallDetectedPayload;
+  "call-detect://ended": CallEndedPayload;
+  "call-detect://accepted": CallDetectedPayload;
 };
 
 export const HOST_EVENTS = {
@@ -188,6 +204,9 @@ export const HOST_EVENTS = {
   recordingStopped: "recording:stopped",
   trayAction: "tray:action",
   trayMicrophoneChanged: "tray:microphone-changed",
+  callDetected: "call-detect://started",
+  callEnded: "call-detect://ended",
+  callAccepted: "call-detect://accepted",
 } as const satisfies Record<string, keyof HostEventMap>;
 
 export type UnlistenFn = () => void;

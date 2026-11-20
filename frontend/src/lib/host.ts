@@ -57,6 +57,13 @@ export type VisualCaptureTargetRecord = {
   height: number;
 };
 
+export type CallDetectionStatusRecord = {
+  supported: boolean;
+  enabled: boolean;
+  backend: string;
+  detail: string;
+};
+
 export type CaptureTargetsResponseRecord = {
   microphones: string[];
   visualTargets: VisualCaptureTargetRecord[];
@@ -631,6 +638,20 @@ export function deleteFolder(folderId: string) {
 
 export function listFolders() {
   return invokeCommand<FolderRecord[]>("list_folders");
+}
+
+// --- Call detection ---
+
+export function callDetectionStatus() {
+  return invokeCommand<CallDetectionStatusRecord>("call_detection_status");
+}
+
+export function setCallDetectionEnabled(enabled: boolean) {
+  return invokeHost<CallDetectionStatusRecord>("set_call_detection_enabled", { enabled });
+}
+
+export function setCallDetectionAppEnabled(appId: string, enabled: boolean) {
+  return invokeHost<void>("set_call_detection_app_enabled", { appId, enabled });
 }
 
 // --- Models & Hardware ---

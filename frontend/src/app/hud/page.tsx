@@ -1,9 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Camera, EyeOff, Mic, NotebookPen, Pause, Play, Square, Volume2 } from "lucide-react";
+import {
+  Camera,
+  EyeOff,
+  Mic,
+  Mic2,
+  NotebookPen,
+  Pause,
+  Play,
+  ShieldCheck,
+  Square,
+  Volume2,
+  X,
+} from "lucide-react";
 
-import { useAudioLevels, useMeetingChanged, useRecordingStopped } from "@/hooks/use-host-event";
+import {
+  useAudioLevels,
+  useHostEvent,
+  useMeetingChanged,
+  useRecordingStopped,
+} from "@/hooks/use-host-event";
 import { formatClock } from "@/lib/format";
 import {
   captureScreenshot,
@@ -14,10 +31,11 @@ import {
   recordingStatus,
   resumeRecording,
   saveNotes,
+  setCallDetectionAppEnabled,
   stopRecording,
 } from "@/lib/host";
 import { isImeComposing } from "@/lib/ime";
-import { isTauri } from "@/lib/tauri";
+import { HOST_EVENTS, isTauri, type CallDetectedPayload } from "@/lib/tauri";
 
 type HudMeeting = { id: string; title: string };
 
@@ -38,6 +56,7 @@ export default function HudPage() {
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [flashMessage, setFlashMessage] = useState<string | null>(null);
+  const [detected, setDetected] = useState<CallDetectedPayload | null>(null);
 
   const flash = (msg: string) => {
     setFlashMessage(msg);
@@ -130,6 +149,38 @@ export default function HudPage() {
 
   const elapsed = startedAt === null ? 0 : Math.max(0, now - startedAt);
   const active = startedAt !== null && Boolean(meeting);
+
+  const resizeHud = useCallback(async (expanded: boolean) => {
+    if (!isTauri()) return;
+    try {
+      const { LogicalSize, getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().setSize(new LogicalSize(expanded ? 360 : 320, expanded ? 180 : 48));
+    } catch {
+      // Keep the current HUD size when the window API is unavailable.
+    }
+  }, []);
+
+  useHostEvent(HOST_EVENTS.callDetected, (payload) => {
+    if (active) return;
+    setDetected(payload);
+    void resizeHud(true);
+  });
+
+  useHostEvent(HOST_EVENTS.callEnded, (payload) => {
+    setDetected((current) => {
+      if (current?.callId !== payload.callId) return current;
+      void resizeHud(false);
+      void hideHud();
+      return null;
+    });
+  });
+
+  useEffect(() => {
+    if (active) {
+      setDetected(null);
+      void resizeHud(false);
+    }
+  }, [active, resizeHud]);
 
   const stop = async () => {
     if (busy) return;
@@ -233,6 +284,90 @@ export default function HudPage() {
       // Ignore if window hide permission is unavailable.
     }
   };
+
+  const dismissDetected = async () => {
+    setDetected(null);
+    await resizeHud(false);
+    await hideHud();
+  };
+
+  const acceptDetected = async () => {
+    if (!detected) return;
+    if (isTauri()) {
+      try {
+        const [{ emit }, { WebviewWindow }] = await Promise.all([
+          import("@tauri-apps/api/event"),
+          import("@tauri-apps/api/webviewWindow"),
+        ]);
+        const main = await WebviewWindow.getByLabel("main");
+        await main?.show();
+        await main?.setFocus();
+        await emit(HOST_EVENTS.callAccepted, detected);
+      } catch {
+        // The main window remains available from the tray if activation fails.
+      }
+    }
+    await dismissDetected();
+  };
+
+  if (detected && !active) {
+    return (
+      <main className="flex h-dvh w-screen items-center justify-center bg-transparent p-1.5">
+        <section className="glass relative flex h-full w-full flex-col rounded-2xl border border-border-subtle/70 p-4 shadow-lg">
+          <button
+            type="button"
+            aria-label="Dismiss call prompt"
+            onClick={() => void dismissDetected()}
+            className="absolute right-3 top-3 flex size-7 items-center justify-center rounded-lg text-text-muted hover:bg-bg-elevated hover:text-text-primary"
+          >
+            <X className="size-4" aria-hidden="true" />
+          </button>
+          <div data-tauri-drag-region className="flex cursor-grab items-start gap-3 pr-8">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/15 text-accent-primary">
+              <Mic2 className="size-5" aria-hidden="true" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-text-primary">
+                {detected.confidence >= 0.8
+                  ? `${detected.appName} call detected`
+                  : `${detected.appName} is using your microphone`}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-text-muted">
+                Start a private local recording? Tell everyone first.
+              </p>
+            </div>
+          </div>
+          <div className="mt-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void acceptDetected()}
+              className="h-8 rounded-xl bg-accent-primary px-3 text-xs font-semibold text-bg-primary"
+            >
+              Start recording
+            </button>
+            <button
+              type="button"
+              onClick={() => void dismissDetected()}
+              className="h-8 rounded-xl px-3 text-xs font-medium text-text-muted hover:bg-bg-elevated hover:text-text-primary"
+            >
+              Not now
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void setCallDetectionAppEnabled(detected.appId, false);
+                void dismissDetected();
+              }}
+              className="ml-auto inline-flex items-center gap-1 text-[10px] text-text-muted hover:text-text-primary"
+            >
+              <ShieldCheck className="size-3" aria-hidden="true" />
+              Never
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="flex h-dvh w-screen items-center justify-center bg-transparent p-1.5">

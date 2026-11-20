@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { useBrand } from "@/components/providers/BrandProvider";
 import { CommandPalette } from "@/components/shell/CommandPalette";
+import { CallDetectionPrompt } from "@/components/shell/CallDetectionPrompt";
 import { NewRecordingDialog } from "@/components/shell/NewRecordingDialog";
 import { Toaster } from "@/components/shell/Toaster";
 import { useHostEvent } from "@/hooks/use-host-event";
@@ -34,6 +35,14 @@ export function GlobalOverlays() {
         }
         openNewRecording();
       }
+    },
+    !isHud,
+  );
+
+  useHostEvent(
+    HOST_EVENTS.callAccepted,
+    () => {
+      openNewRecording();
     },
     !isHud,
   );
@@ -126,6 +135,7 @@ export function GlobalOverlays() {
   return (
     <>
       <CommandPalette />
+      <CallDetectionPrompt />
       <NewRecordingDialog />
       <Toaster />
     </>
