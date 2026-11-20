@@ -515,21 +515,22 @@ pub async fn stop_recording(
             None => None,
         }
     };
-    let wall_clock_ms = runtime
-        .as_ref()
-        .map(|runtime| Utc::now().timestamp_millis() - runtime.started_at_ms)
-        .unwrap_or(0);
+    let Some(mut runtime) = runtime else {
+        // Another stop may already be finalizing after taking ownership of the
+        // runtime. Never overwrite its duration with zero; return the latest
+        // persisted snapshot and let the first stop complete.
+        return state.db.get_meeting(&meeting_id).await;
+    };
+    let wall_clock_ms = Utc::now().timestamp_millis() - runtime.started_at_ms;
     let mut outcome: Option<AudioCaptureTake> = None;
     let mut failure: Option<String> = None;
 
-    if let Some(mut runtime) = runtime {
-        let _ = runtime.cancel.send(true);
-        if let Some(audio) = runtime.audio.take() {
-            match tokio::task::spawn_blocking(move || audio.stop()).await {
-                Ok(Ok(finished)) => outcome = Some(finished),
-                Ok(Err(error)) => failure = Some(error.to_string()),
-                Err(error) => failure = Some(format!("audio finalize task failed: {error}")),
-            }
+    let _ = runtime.cancel.send(true);
+    if let Some(audio) = runtime.audio.take() {
+        match tokio::task::spawn_blocking(move || audio.stop()).await {
+            Ok(Ok(finished)) => outcome = Some(finished),
+            Ok(Err(error)) => failure = Some(error.to_string()),
+            Err(error) => failure = Some(format!("audio finalize task failed: {error}")),
         }
     }
 
