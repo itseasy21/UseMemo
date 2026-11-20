@@ -298,7 +298,11 @@ pub async fn start_recording(
         requested_system_warning.or_else(|| audio.system_start_error().map(str::to_string));
     let system_started = audio.system_device().is_some();
 
-    let now = Utc::now().timestamp_millis();
+    // The microphone writer starts before optional loopback setup. Anchor the
+    // shared meeting timeline to that earlier instant so screenshots, notes,
+    // captions, and both WAVs use the same zero even when a permission prompt
+    // delays the command response.
+    let now = Utc::now().timestamp_millis() - audio.active_elapsed_ms();
     let effective_interval = if state.brand.manifest().features.enable_periodic_screenshots
         && state.capture.is_supported()
     {
