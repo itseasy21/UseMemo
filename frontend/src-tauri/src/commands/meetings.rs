@@ -116,6 +116,21 @@ pub async fn discard_failed_meeting(
     state: State<'_, AppState>,
     meeting_id: String,
 ) -> AppResult<()> {
+    let meeting = state.db.get_meeting(&meeting_id).await?;
+    let active = state.recording.lock().await;
+    if active
+        .as_ref()
+        .is_some_and(|runtime| runtime.meeting_id == meeting_id)
+        || meeting.status != crate::storage::STATUS_RECORDING
+        || meeting.duration_ms != 0
+        || meeting.audio_file_path.is_some()
+        || meeting.system_audio_file_path.is_some()
+    {
+        return Err(AppError::Invalid(
+            "only an unstarted temporary meeting can be discarded".into(),
+        ));
+    }
+    drop(active);
     state.db.delete_meeting(&meeting_id).await?;
     let media = state.paths.meeting_media_dir(&meeting_id);
     if let Err(error) = std::fs::remove_dir_all(media) {
