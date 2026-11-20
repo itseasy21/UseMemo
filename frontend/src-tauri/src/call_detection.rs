@@ -40,6 +40,9 @@ pub struct CallDetectionStatus {
     pub backend: String,
     pub detail: String,
     pub ignored_apps: Vec<String>,
+    pub detector_running: bool,
+    pub observed_apps: Vec<String>,
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -83,6 +86,9 @@ pub struct CallDetectionState {
     enabled: AtomicBool,
     disabled_apps: RwLock<HashSet<String>>,
     settings_path: PathBuf,
+    detector_running: AtomicBool,
+    observed_apps: RwLock<Vec<String>>,
+    last_error: RwLock<Option<String>>,
 }
 
 impl CallDetectionState {
@@ -95,6 +101,9 @@ impl CallDetectionState {
             enabled: AtomicBool::new(settings.enabled),
             disabled_apps: RwLock::new(settings.disabled_apps),
             settings_path,
+            detector_running: AtomicBool::new(false),
+            observed_apps: RwLock::new(Vec::new()),
+            last_error: RwLock::new(None),
         }
     }
 
@@ -295,12 +304,17 @@ fn active_apps(snapshot: &SignalSnapshot) -> HashMap<&'static str, (CallApp, boo
 }
 
 async fn run_detector(app: AppHandle, state: Arc<CallDetectionState>) {
+    state.detector_running.store(true, Ordering::Release);
+    tracing::info!("call detection background task started");
     let mut phases: HashMap<&'static str, Phase> = HashMap::new();
     let mut ticker = tokio::time::interval(Duration::from_secs(3));
     loop {
         ticker.tick().await;
         if !state.enabled() {
             phases.clear();
+            if let Ok(mut observed) = state.observed_apps.write() {
+                observed.clear();
+            }
             continue;
         }
         if app
@@ -317,15 +331,32 @@ async fn run_detector(app: AppHandle, state: Arc<CallDetectionState>) {
                 continue;
             }
             Ok(Err(error)) => {
+                if let Ok(mut last_error) = state.last_error.write() {
+                    *last_error = Some(error.clone());
+                }
                 tracing::debug!(error = %error, "call detection snapshot failed");
                 continue;
             }
             Err(error) => {
+                if let Ok(mut last_error) = state.last_error.write() {
+                    *last_error = Some(error.to_string());
+                }
                 tracing::debug!(error = %error, "call detection snapshot task failed");
                 continue;
             }
         };
         let active = active_apps(&snapshot);
+        if let Ok(mut observed) = state.observed_apps.write() {
+            *observed = active
+                .values()
+                .map(|(app, _)| app.name.to_string())
+                .collect();
+            observed.sort();
+            observed.dedup();
+        }
+        if let Ok(mut last_error) = state.last_error.write() {
+            *last_error = None;
+        }
         let disabled = state
             .disabled_apps
             .read()
@@ -346,6 +377,7 @@ async fn run_detector(app: AppHandle, state: Arc<CallDetectionState>) {
             let live = active.get(id);
             match (current, live) {
                 (None, Some(_)) => {
+                    tracing::info!(app_id = id, "call detection candidate started");
                     phases.insert(id, Phase::Candidate { since: now });
                 }
                 (Some(Phase::Candidate { since }), Some((call_app, output)))
@@ -372,6 +404,7 @@ async fn run_detector(app: AppHandle, state: Arc<CallDetectionState>) {
                             confidence,
                         },
                     );
+                    tracing::info!(app_id = id, %call_id, "call detection prompt emitted");
                     phases.insert(id, Phase::Active { call_id });
                 }
                 (Some(Phase::Candidate { since }), Some(_)) => {
@@ -465,6 +498,16 @@ pub fn status(state: &CallDetectionState) -> CallDetectionStatus {
         .map(|apps| apps.iter().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
     ignored_apps.sort();
+    let observed_apps = state
+        .observed_apps
+        .read()
+        .map(|apps| apps.clone())
+        .unwrap_or_default();
+    let last_error = state
+        .last_error
+        .read()
+        .map(|error| error.clone())
+        .unwrap_or_else(|_| Some("call detection diagnostics lock is poisoned".into()));
     match platform_snapshot() {
         Ok(snapshot) => CallDetectionStatus {
             supported: snapshot.supported,
@@ -478,6 +521,9 @@ pub fn status(state: &CallDetectionState) -> CallDetectionStatus {
                 "Meeting detection is not implemented on this platform yet.".into()
             },
             ignored_apps,
+            detector_running: state.detector_running.load(Ordering::Acquire),
+            observed_apps,
+            last_error,
         },
         Err(error) => CallDetectionStatus {
             supported: false,
@@ -485,6 +531,9 @@ pub fn status(state: &CallDetectionState) -> CallDetectionStatus {
             backend: "unavailable".into(),
             detail: error,
             ignored_apps,
+            detector_running: state.detector_running.load(Ordering::Acquire),
+            observed_apps,
+            last_error,
         },
     }
 }

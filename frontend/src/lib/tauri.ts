@@ -187,6 +187,9 @@ export type CallDetectionStatusRecord = {
   backend: string;
   detail: string;
   ignoredApps: string[];
+  detectorRunning: boolean;
+  observedApps: string[];
+  lastError: string | null;
 };
 
 export type HostEventMap = {
