@@ -128,7 +128,7 @@ export function TopHeaderBar({
       )}
     >
       {/* Left: Brand + Sidebar Collapse + Back/Forward Arrows */}
-      <div className="flex min-w-[190px] items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2 sm:min-w-[190px]">
         <button
           type="button"
           onClick={openMobileNav}
@@ -191,7 +191,7 @@ export function TopHeaderBar({
       </div>
 
       {/* Center: Otter-style Global "Ask or search" Pill Bar */}
-      <div className="flex max-w-[560px] flex-1 justify-center">
+      <div className="hidden min-w-0 max-w-[560px] flex-1 justify-center sm:flex">
         <button
           type="button"
           onClick={openPalette}
@@ -205,7 +205,7 @@ export function TopHeaderBar({
       </div>
 
       {/* Right: Contextual Actions + Primary Record / Share Button */}
-      <div className="flex min-w-[190px] items-center justify-end gap-2">
+      <div className="flex min-w-0 items-center justify-end gap-2 sm:min-w-[190px]">
         <button
           type="button"
           onClick={toggleTheme}
