@@ -1242,7 +1242,7 @@ export const DEMO_MODELS: DemoModel[] = [
     role: "Synthesis SLM",
     repo: "unsloth/Qwen3.5-4B-GGUF",
     description:
-      "Next-gen Qwen 3.5 4B (hybrid Gated DeltaNet), superior JSON extraction & grounded Q&A for 8 GB+ Macs.",
+      "Next-gen Qwen 3.5 4B (hybrid Gated DeltaNet), superior JSON extraction & grounded Q&A for devices with 8 GB+ RAM.",
     files: [
       {
         filename: "Qwen3.5-4B-Q4_K_M.gguf",
@@ -1265,7 +1265,7 @@ export const DEMO_MODELS: DemoModel[] = [
     role: "Synthesis SLM",
     repo: "unsloth/gemma-4-E2B-it-GGUF",
     description:
-      "Google Gemma 4 Effective-2B (Per-Layer Embeddings), 4B-class reasoning with 2B active memory for 8 GB+ Macs.",
+      "Google Gemma 4 Effective-2B (Per-Layer Embeddings), 4B-class reasoning with 2B active memory for devices with 8 GB+ RAM.",
     files: [
       {
         filename: "gemma-4-E2B-it-Q4_K_M.gguf",
@@ -1288,7 +1288,7 @@ export const DEMO_MODELS: DemoModel[] = [
     role: "Pro synthesis SLM",
     repo: "unsloth/gemma-4-E4B-it-GGUF",
     description:
-      "Google Gemma 4 Effective-4B, 128k context flagship on-device reasoning for 16 GB+ Macs.",
+      "Google Gemma 4 Effective-4B, 128k context flagship on-device reasoning for devices with 16 GB+ RAM.",
     files: [
       {
         filename: "gemma-4-E4B-it-Q4_K_M.gguf",
@@ -1311,7 +1311,7 @@ export const DEMO_MODELS: DemoModel[] = [
     role: "Synthesis SLM",
     repo: "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
     description:
-      "LiquidAI LFM 2.5 1.2B Instruct (697 MB), ultra-fast state-space hybrid with minimal RAM usage for 4–8 GB Macs.",
+      "LiquidAI LFM 2.5 1.2B Instruct (697 MB), ultra-fast state-space hybrid with minimal RAM usage for devices with 4–8 GB RAM.",
     files: [
       {
         filename: "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
@@ -1334,7 +1334,7 @@ export const DEMO_MODELS: DemoModel[] = [
     role: "Synthesis SLM",
     repo: "LiquidAI/LFM2.5-2.6B-GGUF",
     description:
-      "LiquidAI LFM 2.5 2.6B (1.56 GB), high-throughput Liquid Foundation Model for 8–16 GB Macs.",
+      "LiquidAI LFM 2.5 2.6B (1.56 GB), high-throughput Liquid Foundation Model for devices with 8–16 GB RAM.",
     files: [
       {
         filename: "LFM2.5-2.6B-Q4_K_M.gguf",

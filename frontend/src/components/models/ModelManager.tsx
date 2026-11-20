@@ -87,28 +87,28 @@ const FRIENDLY_NAMES: Record<
     title: "Gemma 4 E2B",
     subtitle: "Google Effective-2B · Low-RAM Reasoning",
     summary:
-      "Per-Layer Embedding architecture delivering 4B-class meeting synthesis with a 2B active memory footprint on 8 GB+ Macs.",
+      "Per-Layer Embedding architecture delivering 4B-class meeting synthesis with a 2B active memory footprint on devices with 8 GB+ RAM.",
     badge: "New · Gemma 4",
   },
   "gemma-4-e4b-it": {
     title: "Gemma 4 E4B",
     subtitle: "Google Effective-4B · 128k Pro Context",
     summary:
-      "Flagship on-device Gemma 4 model for deep multi-speaker reasoning, executive briefs, and clinical SOAP notes on 16 GB+ Macs.",
+      "Flagship on-device Gemma 4 model for deep multi-speaker reasoning, executive briefs, and clinical SOAP notes on devices with 16 GB+ RAM.",
     badge: "Best for 16 GB+",
   },
   "lfm2.5-1.2b-instruct": {
     title: "LiquidAI LFM 2.5 1.2B",
     subtitle: "Ultra-Fast State-Space Hybrid · 697 MB",
     summary:
-      "Liquid Foundation Model with 3× lower memory bandwidth than standard Transformers — instant summaries on any 8 GB Mac.",
+      "Liquid Foundation Model with 3× lower memory bandwidth than standard Transformers for fast summaries on devices with 8 GB+ RAM.",
     badge: "Ultra-Light",
   },
   "lfm2.5-2.6b-instruct": {
     title: "LiquidAI LFM 2.5 2.6B",
     subtitle: "High-Throughput Liquid Model · 1.56 GB",
     summary:
-      "Stronger 2.6B Liquid Foundation Model combining rapid token generation with a compact 1.56 GB footprint for 8–16 GB Macs.",
+      "Stronger 2.6B Liquid Foundation Model combining rapid token generation with a compact 1.56 GB footprint for devices with 8–16 GB RAM.",
     badge: "Low Memory",
   },
   "qwen2.5-3b-instruct": {

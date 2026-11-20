@@ -176,21 +176,24 @@ export function Dialog({
         pressedOutsideRef.current = false;
       }}
       className={cn(
-        "um-modal glass m-auto mt-[8vh] w-[calc(100%-2rem)] overflow-hidden rounded-[22px] p-0 text-text-primary",
+        "um-modal m-auto mt-[6vh] w-[calc(100%-2rem)] overflow-hidden rounded-[28px] border border-[var(--glass-border-strong)] bg-[var(--glass-surface-strong)] p-0 text-text-primary shadow-[0_40px_120px_-36px_rgba(0,0,0,.72)]",
         SIZES[size],
         className,
       )}
     >
-      <header className="flex items-start justify-between gap-6 border-b border-[var(--glass-border)] px-6 py-4.5">
+      <header className="flex items-start justify-between gap-6 border-b border-[var(--glass-border)] px-7 py-6">
         <div className="min-w-0">
           <h2
             id={titleId}
-            className="text-[16px] font-semibold tracking-[-0.015em] text-text-primary"
+            className="text-[20px] font-semibold tracking-[-0.035em] text-text-primary"
           >
             {title}
           </h2>
           {description && (
-            <p id={descriptionId} className="mt-1 text-[12.5px] leading-5 text-text-muted">
+            <p
+              id={descriptionId}
+              className="mt-1.5 max-w-[560px] text-[13px] leading-5 text-text-muted"
+            >
               {description}
             </p>
           )}
@@ -199,9 +202,9 @@ export function Dialog({
           <X className="size-4" aria-hidden="true" />
         </IconButton>
       </header>
-      <div className={cn("max-h-[68vh] overflow-y-auto px-6 py-5", bodyClassName)}>{children}</div>
+      <div className={cn("max-h-[68vh] overflow-y-auto px-7 py-6", bodyClassName)}>{children}</div>
       {footer && (
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-6 py-3.5">
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--glass-border)] bg-[color-mix(in_oklab,var(--glass-surface-subtle)_75%,transparent)] px-7 py-4">
           {footer}
         </footer>
       )}

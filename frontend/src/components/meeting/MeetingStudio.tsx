@@ -682,10 +682,8 @@ export function MeetingStudio({
           />
         )}
 
-        {/* Main Scrollable Otter-Style Document Canvas */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[820px] px-6 pb-16 pt-7 sm:px-10">
-            {/* 1. Large Editable Meeting Title */}
+          <div className="mx-auto w-full max-w-[940px] px-5 pb-20 pt-8 sm:px-8 lg:px-10">
             <div className="flex items-start justify-between gap-3">
               {editingTitle ? (
                 <input
@@ -704,7 +702,7 @@ export function MeetingStudio({
                   }}
                   aria-label="Meeting title"
                   autoFocus
-                  className="glass-input h-11 w-full px-3.5 text-[24px] font-bold tracking-[-0.025em] text-text-primary outline-none"
+                  className="glass-input h-13 w-full px-4 text-[30px] font-semibold tracking-[-0.04em] text-text-primary outline-none"
                 />
               ) : (
                 <button
@@ -713,7 +711,7 @@ export function MeetingStudio({
                   title="Click to rename meeting"
                   className="group flex min-w-0 items-center gap-2 rounded-xl py-0.5 text-left transition hover:opacity-90"
                 >
-                  <h1 className="text-[24px] font-bold leading-tight tracking-[-0.025em] text-text-primary sm:text-[28px]">
+                  <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.045em] text-text-primary sm:text-[36px]">
                     {meeting.title}
                   </h1>
                   <PencilLine
@@ -744,9 +742,8 @@ export function MeetingStudio({
               </div>
             </div>
 
-            {/* 2. Otter-Style Metadata Row */}
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-text-muted">
-              <span className="flex items-center gap-1.5 font-medium text-text-primary/90">
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+              <span className="flex h-8 items-center gap-1.5 rounded-full border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-3 font-medium text-text-primary/90">
                 <Avatar
                   name={meeting.participants[0]?.name || "Local"}
                   tone="accent"
@@ -756,12 +753,12 @@ export function MeetingStudio({
                 {meeting.participants[0]?.name || "Local Workspace"}
               </span>
 
-              <span className="flex items-center gap-1.5">
+              <span className="flex h-8 items-center gap-1.5 rounded-full border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-3">
                 <Calendar className="size-3.5 opacity-75" aria-hidden="true" />
                 {meeting.dateLabel}
               </span>
 
-              <span className="flex items-center gap-1.5">
+              <span className="flex h-8 items-center gap-1.5 rounded-full border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-3">
                 <Clock className="size-3.5 opacity-75" aria-hidden="true" />
                 {formatDuration(meeting.durationMs)}
               </span>
@@ -769,7 +766,7 @@ export function MeetingStudio({
               <button
                 type="button"
                 onClick={() => setActiveTab("slides")}
-                className="flex items-center gap-1.5 transition hover:text-text-primary"
+                className="flex h-8 items-center gap-1.5 rounded-full border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-3 transition hover:border-accent-primary/30 hover:text-text-primary"
               >
                 <ImageIcon className="size-3.5 opacity-75" aria-hidden="true" />
                 <span>
@@ -780,16 +777,19 @@ export function MeetingStudio({
               <button
                 type="button"
                 onClick={() => void handleCopySummary()}
-                className="flex items-center gap-1.5 font-medium text-text-primary/90 transition hover:text-accent-primary"
+                className="flex h-8 items-center gap-1.5 rounded-full border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-3 font-medium text-text-primary/90 transition hover:border-accent-primary/30 hover:text-accent-primary"
               >
                 <Copy className="size-3.5" aria-hidden="true" />
                 <span>Copy summary</span>
               </button>
             </div>
 
-            {/* 3. Otter-Style Underline Tab Bar + Template Selector */}
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--glass-border)]">
-              <div role="tablist" aria-label="Meeting sections" className="flex items-center gap-6">
+            <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
+              <div
+                role="tablist"
+                aria-label="Meeting sections"
+                className="flex items-center gap-1 rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] p-1"
+              >
                 {(
                   [
                     { id: "summary", label: "Summary" },
@@ -817,14 +817,19 @@ export function MeetingStudio({
                     id={`${tabBaseId}-${tab.id}`}
                     aria-selected={activeTab === tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className="um-tab pb-3 text-[13.5px] font-semibold"
+                    className={cn(
+                      "rounded-xl px-3.5 py-2 text-[12.5px] font-semibold transition",
+                      activeTab === tab.id
+                        ? "bg-[var(--glass-surface-strong)] text-text-primary shadow-sm"
+                        : "text-text-muted hover:text-text-primary",
+                    )}
                   >
                     {tab.label}
                   </button>
                 ))}
               </div>
 
-              <div className="mb-2 flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-3 py-2">
                 <div className="flex items-center gap-1.5 text-xs text-text-muted">
                   <span>Template:</span>
                   <select
@@ -841,7 +846,7 @@ export function MeetingStudio({
                         void handleSynthesize(next);
                       }
                     }}
-                    className="bg-transparent font-semibold text-text-primary outline-none cursor-pointer"
+                    className="cursor-pointer bg-transparent font-semibold text-text-primary outline-none"
                   >
                     {TEMPLATES.map((t) => (
                       <option key={t.id} value={t.id} className="bg-bg-elevated text-text-primary">
@@ -894,7 +899,7 @@ export function MeetingStudio({
               <div
                 role="tabpanel"
                 aria-labelledby={`${tabBaseId}-summary`}
-                className="mt-7 space-y-7"
+                className="mt-6 space-y-5"
               >
                 {!hasSummaryContent && !meeting.isDemo ? (
                   <div className="panel flex flex-col items-center justify-center px-6 py-12 text-center">
@@ -941,19 +946,22 @@ export function MeetingStudio({
                 ) : (
                   <>
                     {/* Overview Section */}
-                    <section>
-                      <h2 className="text-[18px] font-bold tracking-[-0.015em] text-text-primary">
+                    <section className="panel p-6 sm:p-7">
+                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent-primary">
+                        At a glance
+                      </p>
+                      <h2 className="text-[20px] font-semibold tracking-[-0.025em] text-text-primary">
                         Overview
                       </h2>
-                      <p className="mt-2.5 text-[14.5px] leading-[1.7] text-text-primary/92">
+                      <p className="mt-3 text-[15px] leading-7 text-text-primary/88">
                         {meeting.summary.headline}
                       </p>
                     </section>
 
                     {/* Key Updates / Summary Bullets Section */}
                     {meeting.summary.paragraphs.length > 0 && (
-                      <section>
-                        <h3 className="text-[15.5px] font-bold tracking-[-0.01em] text-text-primary">
+                      <section className="panel p-6 sm:p-7">
+                        <h3 className="text-[16px] font-semibold tracking-[-0.015em] text-text-primary">
                           Key Updates &amp; Discussion
                         </h3>
                         <ul className="mt-2.5 list-disc space-y-2.5 pl-5">
@@ -979,8 +987,8 @@ export function MeetingStudio({
 
                     {/* Decisions / Status Section */}
                     {meeting.decisions.length > 0 && (
-                      <section>
-                        <h3 className="text-[15.5px] font-bold tracking-[-0.01em] text-text-primary">
+                      <section className="panel p-6 sm:p-7">
+                        <h3 className="text-[16px] font-semibold tracking-[-0.015em] text-text-primary">
                           Decisions &amp; Status
                         </h3>
                         <ul className="mt-2.5 list-disc space-y-2.5 pl-5">
@@ -1001,7 +1009,7 @@ export function MeetingStudio({
                       const resolvedLabel =
                         templateLabelByKey.get(section.itemType) ?? section.label;
                       return (
-                        <section key={section.itemType}>
+                        <section key={section.itemType} className="panel p-6 sm:p-7">
                           <h3 className="text-[15.5px] font-bold tracking-[-0.01em] text-text-primary">
                             {resolvedLabel}
                           </h3>
@@ -1043,7 +1051,7 @@ export function MeetingStudio({
                     </div>
 
                     {/* Action Items Section (Directly in Summary Document like Otter) */}
-                    <section className="border-t border-[var(--glass-border)] pt-6">
+                    <section className="panel p-6 sm:p-7">
                       <div className="mb-3 flex items-center justify-between">
                         <h2 className="text-[18px] font-bold tracking-[-0.015em] text-text-primary">
                           Action Items
@@ -1116,7 +1124,7 @@ export function MeetingStudio({
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-text-muted">
                     Captured presentation slides &amp; screen changes (deduplicated via dHash +
-                    Apple Vision OCR)
+                    on-device OCR)
                   </p>
                   <Button
                     variant="secondary"

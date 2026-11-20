@@ -8,45 +8,25 @@ export function BrandMark({ className }: { className?: string }) {
   const brand = useBrand();
   return (
     <svg
-      viewBox="0 0 40 40"
+      viewBox="0 0 48 48"
       role="img"
       aria-label={`${brand.productName} mark`}
       className={cn("size-8 shrink-0", className)}
     >
-      <rect
-        x="1"
-        y="1"
-        width="38"
-        height="38"
-        rx="11"
-        fill="var(--brand-accent-primary)"
-        fillOpacity="0.12"
-        stroke="var(--brand-accent-primary)"
-        strokeOpacity="0.34"
-      />
-      <rect
-        x="10"
-        y="8"
-        width="20"
-        height="24"
-        rx="5"
-        fill="none"
-        stroke="var(--brand-text-muted)"
-        strokeOpacity="0.6"
-        strokeWidth="2"
-      />
+      <defs>
+        <linearGradient id="usememo-mark" x1="7" y1="6" x2="41" y2="43">
+          <stop stopColor="var(--brand-accent-primary)" />
+          <stop offset="1" stopColor="var(--brand-accent-secondary)" />
+        </linearGradient>
+      </defs>
+      <rect x="2" y="2" width="44" height="44" rx="14" fill="#071216" />
+      <path d="M12 10h18l8 8v19a3 3 0 0 1-3 3H15a3 3 0 0 1-3-3z" fill="url(#usememo-mark)" />
+      <path d="M30 10v5a3 3 0 0 0 3 3h5" fill="#aef9f0" fillOpacity=".82" />
       <path
-        d="M14.5 14.5h11M14.5 19h8"
-        stroke="var(--brand-text-muted)"
-        strokeOpacity="0.6"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M14 27h3l1.8 4 2.4-7 2 5 1.6-2H26"
+        d="M8 29h5c2.6 0 2.8-5 5.1-5 2.5 0 2.4 9 4.9 9s2.6-14 5.2-14 2.5 16 5 16c2.4 0 2.7-9 5-9 2 0 2.3 4.3 4.4 4.3 1.4 0 2.2-1.8 3.4-3.1"
         fill="none"
-        stroke="var(--brand-accent-primary)"
-        strokeWidth="2.1"
+        stroke="#efffff"
+        strokeWidth="3"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -66,14 +46,14 @@ export function Wordmark({
   const brand = useBrand();
   return (
     <span className={cn("flex min-w-0 items-center gap-2.5", className)}>
-      <BrandMark className="size-8" />
+      <BrandMark className="size-9" />
       {!collapsed && (
         <span className="min-w-0">
-          <span className="block truncate text-[14px] font-semibold tracking-[-0.025em] text-text-primary">
+          <span className="block truncate text-[15px] font-semibold tracking-[-0.035em] text-text-primary">
             {brand.productName}
           </span>
           {showTagline ? (
-            <span className="mt-0.5 block truncate text-[9.5px] font-medium uppercase tracking-[0.16em] text-text-muted">
+            <span className="mt-0.5 block truncate text-[9px] font-semibold uppercase tracking-[0.18em] text-text-muted">
               {brand.tagline}
             </span>
           ) : null}
