@@ -496,6 +496,7 @@ export function NewRecordingDialog() {
           : "Choose what to capture. You can change transcription and summary models later."
       }
       size="lg"
+      className="h-[min(720px,calc(100dvh-1rem))]"
       footer={
         <>
           <span className="flex items-center gap-1.5 text-xs text-text-muted">
