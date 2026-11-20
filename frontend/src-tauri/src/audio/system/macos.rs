@@ -19,6 +19,19 @@ const SAMPLE_RATE: u32 = 48_000;
 const QUEUE_BLOCKS: usize = 96;
 const SETUP_TIMEOUT: Duration = Duration::from_secs(20);
 
+unsafe extern "C" {
+    fn memo_macos_screen_capture_permission_status() -> i32;
+    fn memo_macos_request_screen_capture_permission() -> i32;
+}
+
+pub fn permission_granted() -> bool {
+    unsafe { memo_macos_screen_capture_permission_status() == 1 }
+}
+
+pub fn request_permission() -> bool {
+    unsafe { memo_macos_request_screen_capture_permission() == 1 }
+}
+
 pub struct SystemAudioCapture {
     receiver: Receiver<Vec<f32>>,
     stop: Arc<AtomicBool>,

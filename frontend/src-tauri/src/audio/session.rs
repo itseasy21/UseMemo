@@ -195,6 +195,7 @@ pub struct AudioCaptureSession {
     meeting_id: String,
     info: MicrophoneInfo,
     system_device: Option<String>,
+    system_start_error: Option<String>,
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     clock: Arc<ActiveClock>,
@@ -223,9 +224,15 @@ impl AudioCaptureSession {
     ) -> AppResult<Self> {
         let microphone = MicrophoneCapture::start(microphone_device).map_err(capture_error)?;
         let info = microphone.info().clone();
-        let system = match system_destination.as_ref() {
-            Some(_) => Some(SystemAudioCapture::start()?),
-            None => None,
+        let (system, mut system_start_error) = match system_destination.as_ref() {
+            Some(_) => match SystemAudioCapture::start() {
+                Ok(capture) => (Some(capture), None),
+                Err(error) => {
+                    tracing::warn!(error = %error, "system audio unavailable; continuing microphone-only");
+                    (None, Some(error.to_string()))
+                }
+            },
+            None => (None, None),
         };
         let system_device = system
             .as_ref()
@@ -290,14 +297,10 @@ impl AudioCaptureSession {
             match system_worker {
                 Ok(worker) => workers.push((AudioChannel::System, worker)),
                 Err(error) => {
-                    stop.store(true, Ordering::Release);
-                    if let Some((_, mic_worker)) = workers.pop() {
-                        let _ = mic_worker.join();
-                    }
-                    remove_partial(&[destination.as_path(), system_path.as_path()]);
-                    return Err(AppError::Capture(format!(
-                        "cannot spawn the system-audio writer thread: {error}"
-                    )));
+                    let message = format!("cannot spawn the system-audio writer thread: {error}");
+                    tracing::warn!(error = %message, "system audio unavailable; continuing microphone-only");
+                    system_start_error = Some(message);
+                    remove_partial(&[system_path.as_path()]);
                 }
             }
         }
@@ -306,6 +309,7 @@ impl AudioCaptureSession {
             meeting_id,
             info,
             system_device,
+            system_start_error,
             stop,
             paused,
             clock,
@@ -323,6 +327,10 @@ impl AudioCaptureSession {
 
     pub fn system_device(&self) -> Option<&str> {
         self.system_device.as_deref()
+    }
+
+    pub fn system_start_error(&self) -> Option<&str> {
+        self.system_start_error.as_deref()
     }
 
     pub fn pause(&self) {
@@ -358,7 +366,10 @@ impl AudioCaptureSession {
         self.clock.set_paused(false);
         self.stop.store(true, Ordering::Release);
 
-        let mut take = AudioCaptureTake::default();
+        let mut take = AudioCaptureTake {
+            system_error: self.system_start_error.clone(),
+            ..AudioCaptureTake::default()
+        };
         for (channel, worker) in self.workers.drain(..) {
             match worker.join() {
                 Ok(Ok(outcome)) => take.push(outcome),

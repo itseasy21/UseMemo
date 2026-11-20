@@ -10,4 +10,7 @@ pub mod system;
 pub use session::{
     AudioCaptureOutcome, AudioCaptureSession, AudioCaptureTake, AudioChannel, AudioLevelSample,
 };
-pub use system::{system_audio_backend, system_audio_supported};
+pub use system::{
+    request_system_audio_permission, system_audio_backend, system_audio_permission_granted,
+    system_audio_supported,
+};

@@ -7,8 +7,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
 use crate::audio::{
-    session::ARCHIVE_SAMPLE_RATE, system_audio_backend, system_audio_supported,
-    AudioCaptureOutcome, AudioCaptureSession, AudioCaptureTake, AudioLevelSample,
+    request_system_audio_permission, session::ARCHIVE_SAMPLE_RATE, system_audio_backend,
+    system_audio_permission_granted, system_audio_supported, AudioCaptureOutcome,
+    AudioCaptureSession, AudioCaptureTake, AudioLevelSample,
 };
 use crate::error::{AppError, AppResult};
 use crate::events::{AudioLevelsPayload, RecordingStoppedPayload, SystemAudioFacts};
@@ -192,6 +193,13 @@ pub struct CaptureTargetsResponse {
     pub active_target: CaptureTarget,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartRecordingOutcome {
+    pub meeting: Meeting,
+    pub system_audio_warning: Option<String>,
+}
+
 #[tauri::command]
 pub async fn list_capture_targets(state: State<'_, AppState>) -> AppResult<CaptureTargetsResponse> {
     let capture = Arc::clone(&state.capture);
@@ -228,7 +236,7 @@ pub async fn start_recording(
     capture_system_audio: Option<bool>,
     microphone_device: Option<String>,
     capture_target: Option<CaptureTarget>,
-) -> AppResult<Meeting> {
+) -> AppResult<StartRecordingOutcome> {
     let mut active = state.recording.lock().await;
     if let Some(runtime) = active.as_ref() {
         return Err(AppError::Capture(format!(
@@ -243,15 +251,16 @@ pub async fn start_recording(
 
     let meeting = state.db.get_meeting(&meeting_id).await?;
     let want_system = capture_system_audio.unwrap_or(false);
-    if want_system && !system_audio_supported() {
-        return Err(AppError::Capture(
-            "system audio capture is not available in this build or on this platform".into(),
-        ));
-    }
+    let system_supported = system_audio_supported();
+    let requested_system_warning = (want_system && !system_supported).then(|| {
+        "Meeting audio is not supported on this platform yet. Your microphone is still recording."
+            .to_string()
+    });
+    let capture_system = want_system && system_supported;
 
     let media_dir = state.paths.meeting_media_dir(&meeting.id);
     let audio_path = media_dir.join("audio.wav");
-    let system_path = want_system.then(|| media_dir.join("audio-system.wav"));
+    let system_path = capture_system.then(|| media_dir.join("audio-system.wav"));
     let (level_tx, mut level_rx) = tokio::sync::mpsc::channel::<AudioLevelSample>(64);
 
     let start_meeting_id = meeting.id.clone();
@@ -273,41 +282,51 @@ pub async fn start_recording(
     {
         Ok(Ok(audio)) => audio,
         Ok(Err(error)) => {
-            if let Some(system) = system_path.as_ref() {
-                let _ = std::fs::remove_file(system);
-            }
-            let _ = std::fs::remove_file(&audio_path);
-            let _ = state.db.finish_meeting(&meeting.id, 0).await;
+            tracing::warn!(meeting_id = %meeting.id, error = %error, "recording startup failed");
+            cleanup_failed_start(&state, &meeting.id, &media_dir).await;
             return Err(error);
         }
         Err(join_error) => {
-            let _ = state.db.finish_meeting(&meeting.id, 0).await;
+            tracing::warn!(meeting_id = %meeting.id, error = %join_error, "audio startup task panicked");
+            cleanup_failed_start(&state, &meeting.id, &media_dir).await;
             return Err(AppError::Capture(format!(
                 "audio startup task panicked: {join_error}"
             )));
         }
     };
+    let system_audio_warning =
+        requested_system_warning.or_else(|| audio.system_start_error().map(str::to_string));
+    let system_started = audio.system_device().is_some();
 
     let now = Utc::now().timestamp_millis();
-    let effective_interval = if state.brand.manifest().features.enable_periodic_screenshots {
+    let effective_interval = if state.brand.manifest().features.enable_periodic_screenshots
+        && state.capture.is_supported()
+    {
         meeting.screenshot_interval_sec
     } else {
         0
     };
-    let scheduler =
-        match CaptureScheduler::start(&state.capture_lease, &meeting.id, effective_interval, now) {
-            Ok(scheduler) => scheduler,
-            Err(error) => {
-                drop(audio);
-                let _ = state.db.finish_meeting(&meeting.id, 0).await;
-                return Err(error);
-            }
-        };
+    let scheduler = match CaptureScheduler::start(
+        &state.capture_lease,
+        &meeting.id,
+        effective_interval,
+        now,
+    ) {
+        Ok(scheduler) => scheduler,
+        Err(error) => {
+            drop(audio);
+            tracing::warn!(meeting_id = %meeting.id, error = %error, "capture scheduler startup failed");
+            cleanup_failed_start(&state, &meeting.id, &media_dir).await;
+            return Err(error);
+        }
+    };
 
     // Persist audio paths immediately at recording start so an unexpected quit
     // or crash never leaves the SQLite row pointing at NULL.
     let audio_path_str = audio_path.to_string_lossy().into_owned();
-    let system_path_str = system_path
+    let system_path_str = system_started
+        .then_some(system_path.as_ref())
+        .flatten()
         .as_ref()
         .map(|path| path.to_string_lossy().into_owned());
     state
@@ -442,7 +461,9 @@ pub async fn start_recording(
 
     tracing::info!(
         meeting_id = %meeting.id,
-        system_audio = want_system,
+        system_audio_requested = want_system,
+        system_audio_started = system_started,
+        system_audio_warning = ?system_audio_warning,
         screenshot_interval_sec = effective_interval,
         "started recording session"
     );
@@ -454,7 +475,21 @@ pub async fn start_recording(
         },
     )
     .map_err(|error| AppError::Invalid(format!("cannot emit meeting change: {error}")))?;
-    Ok(meeting)
+    Ok(StartRecordingOutcome {
+        meeting,
+        system_audio_warning,
+    })
+}
+
+async fn cleanup_failed_start(state: &AppState, meeting_id: &str, media_dir: &std::path::Path) {
+    if let Err(error) = state.db.delete_meeting(meeting_id).await {
+        tracing::warn!(meeting_id, error = %error, "could not remove failed recording row");
+    }
+    if let Err(error) = std::fs::remove_dir_all(media_dir) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(meeting_id, error = %error, "could not remove failed recording media");
+        }
+    }
 }
 
 #[tauri::command]
@@ -627,6 +662,9 @@ pub struct AudioCapabilities {
     pub microphone: bool,
     pub system_audio: bool,
     pub system_backend: Option<String>,
+    pub system_audio_permission_required: bool,
+    pub system_audio_permission_granted: bool,
+    pub screenshot_capture: bool,
     pub diarization: bool,
     pub echo_cancellation: bool,
     pub archive_sample_rate: u32,
@@ -634,12 +672,19 @@ pub struct AudioCapabilities {
 }
 
 #[tauri::command]
-pub fn audio_capabilities() -> AudioCapabilities {
+pub fn audio_capabilities(state: State<'_, AppState>) -> AudioCapabilities {
+    audio_capabilities_for(&state)
+}
+
+pub fn audio_capabilities_for(state: &AppState) -> AudioCapabilities {
     let supported = system_audio_supported();
     AudioCapabilities {
         microphone: true,
         system_audio: supported,
         system_backend: system_audio_backend().map(str::to_string),
+        system_audio_permission_required: cfg!(target_os = "macos") && supported,
+        system_audio_permission_granted: system_audio_permission_granted(),
+        screenshot_capture: state.capture.is_supported(),
         diarization: true,
         echo_cancellation: false,
         archive_sample_rate: ARCHIVE_SAMPLE_RATE,
@@ -649,4 +694,9 @@ pub fn audio_capabilities() -> AudioCapabilities {
                 .into()
         }),
     }
+}
+
+#[tauri::command]
+pub fn request_system_audio_access() -> bool {
+    request_system_audio_permission()
 }

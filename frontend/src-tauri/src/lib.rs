@@ -61,12 +61,12 @@ pub fn run() {
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
+        .on_window_event(|_window, _event| {
             #[cfg(target_os = "macos")]
-            if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            if _window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = _event {
                     api.prevent_close();
-                    let _ = window.hide();
+                    let _ = _window.hide();
                 }
             }
         })
@@ -94,6 +94,7 @@ pub fn run() {
             commands::meetings::stop_recording,
             commands::meetings::recording_status,
             commands::meetings::audio_capabilities,
+            commands::meetings::request_system_audio_access,
             commands::mobile::microphone_permission,
             commands::mobile::request_microphone_permission,
             commands::mobile::configure_audio_session,
