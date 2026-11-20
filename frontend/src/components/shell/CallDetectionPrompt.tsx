@@ -6,7 +6,7 @@ import { Mic2, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useHostEvent } from "@/hooks/use-host-event";
 import { setCallDetectionAppEnabled } from "@/lib/host";
-import { HOST_EVENTS, type CallDetectedPayload } from "@/lib/tauri";
+import { HOST_EVENTS, isTauri, type CallDetectedPayload } from "@/lib/tauri";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 export function CallDetectionPrompt() {
@@ -17,8 +17,21 @@ export function CallDetectionPrompt() {
   useHostEvent(HOST_EVENTS.callEnded, (payload) => {
     setDetected((current) => (current?.callId === payload.callId ? null : current));
   });
+  useHostEvent(HOST_EVENTS.callDismissed, (payload) => {
+    setDetected((current) =>
+      payload.callId === null || current?.callId === payload.callId ? null : current,
+    );
+  });
 
   if (!detected) return null;
+
+  const dismissEverywhere = async () => {
+    const callId = detected.callId;
+    setDetected(null);
+    if (!isTauri()) return;
+    const { emit } = await import("@tauri-apps/api/event");
+    await emit(HOST_EVENTS.callDismissed, { callId });
+  };
 
   return (
     <aside
@@ -29,7 +42,7 @@ export function CallDetectionPrompt() {
       <button
         type="button"
         aria-label="Dismiss call prompt"
-        onClick={() => setDetected(null)}
+        onClick={() => void dismissEverywhere()}
         className="absolute right-3 top-3 flex size-7 items-center justify-center rounded-lg text-text-muted hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary"
       >
         <X className="size-4" aria-hidden="true" />
@@ -54,20 +67,20 @@ export function CallDetectionPrompt() {
           variant="primary"
           size="sm"
           onClick={() => {
-            setDetected(null);
+            void dismissEverywhere();
             openNewRecording();
           }}
         >
           Start recording
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => setDetected(null)}>
+        <Button variant="ghost" size="sm" onClick={() => void dismissEverywhere()}>
           Not now
         </Button>
         <button
           type="button"
           onClick={() => {
             void setCallDetectionAppEnabled(detected.appId, false);
-            setDetected(null);
+            void dismissEverywhere();
           }}
           className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-text-muted hover:text-text-primary"
         >

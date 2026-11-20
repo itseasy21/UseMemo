@@ -12,6 +12,7 @@ import {
   invokeCommand,
   invokeHost,
   invokeRequired,
+  type CallDetectionStatusRecord,
   type MeetingRecord,
   type ScreenshotCapturedPayload,
   type ScreenshotRecord,
@@ -57,13 +58,7 @@ export type VisualCaptureTargetRecord = {
   height: number;
 };
 
-export type CallDetectionStatusRecord = {
-  supported: boolean;
-  enabled: boolean;
-  backend: string;
-  detail: string;
-  ignoredApps: string[];
-};
+export type { CallDetectionStatusRecord };
 
 export type CaptureTargetsResponseRecord = {
   microphones: string[];
@@ -652,7 +647,10 @@ export function setCallDetectionEnabled(enabled: boolean) {
 }
 
 export function setCallDetectionAppEnabled(appId: string, enabled: boolean) {
-  return invokeHost<void>("set_call_detection_app_enabled", { appId, enabled });
+  return invokeHost<CallDetectionStatusRecord>("set_call_detection_app_enabled", {
+    appId,
+    enabled,
+  });
 }
 
 export function resetCallDetectionApps() {

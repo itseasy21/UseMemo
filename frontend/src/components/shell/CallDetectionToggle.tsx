@@ -9,7 +9,8 @@ import {
   setCallDetectionEnabled,
   type CallDetectionStatusRecord,
 } from "@/lib/host";
-import { isTauri } from "@/lib/tauri";
+import { useHostEvent } from "@/hooks/use-host-event";
+import { HOST_EVENTS, isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 export function CallDetectionToggle() {
@@ -23,6 +24,8 @@ export function CallDetectionToggle() {
       setStatus(current);
     })();
   }, []);
+
+  useHostEvent(HOST_EVENTS.callDetectionSettingsChanged, setStatus);
 
   if (!status?.supported) return null;
 

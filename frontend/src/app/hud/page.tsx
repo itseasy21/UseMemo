@@ -175,6 +175,15 @@ export default function HudPage() {
     });
   });
 
+  useHostEvent(HOST_EVENTS.callDismissed, (payload) => {
+    setDetected((current) => {
+      if (payload.callId !== null && current?.callId !== payload.callId) return current;
+      void resizeHud(false);
+      void hideHud();
+      return null;
+    });
+  });
+
   useEffect(() => {
     if (active) {
       setDetected(null);
@@ -286,7 +295,12 @@ export default function HudPage() {
   };
 
   const dismissDetected = async () => {
+    const callId = detected?.callId ?? null;
     setDetected(null);
+    if (isTauri()) {
+      const { emit } = await import("@tauri-apps/api/event");
+      await emit(HOST_EVENTS.callDismissed, { callId });
+    }
     await resizeHud(false);
     await hideHud();
   };

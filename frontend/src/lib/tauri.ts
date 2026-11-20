@@ -177,6 +177,18 @@ export type CallEndedPayload = {
   appName: string;
 };
 
+export type CallDismissedPayload = {
+  callId: string | null;
+};
+
+export type CallDetectionStatusRecord = {
+  supported: boolean;
+  enabled: boolean;
+  backend: string;
+  detail: string;
+  ignoredApps: string[];
+};
+
 export type HostEventMap = {
   "audio:levels": AudioLevelsPayload;
   "asr:segment-delta": AsrSegmentDeltaPayload;
@@ -191,6 +203,8 @@ export type HostEventMap = {
   "call-detect://started": CallDetectedPayload;
   "call-detect://ended": CallEndedPayload;
   "call-detect://accepted": CallDetectedPayload;
+  "call-detect://dismissed": CallDismissedPayload;
+  "call-detect://settings-changed": CallDetectionStatusRecord;
 };
 
 export const HOST_EVENTS = {
@@ -207,6 +221,8 @@ export const HOST_EVENTS = {
   callDetected: "call-detect://started",
   callEnded: "call-detect://ended",
   callAccepted: "call-detect://accepted",
+  callDismissed: "call-detect://dismissed",
+  callDetectionSettingsChanged: "call-detect://settings-changed",
 } as const satisfies Record<string, keyof HostEventMap>;
 
 export type UnlistenFn = () => void;
