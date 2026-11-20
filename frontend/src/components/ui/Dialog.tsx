@@ -176,7 +176,7 @@ export function Dialog({
         pressedOutsideRef.current = false;
       }}
       className={cn(
-        "um-modal m-auto my-2 flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] flex-col overflow-hidden rounded-[24px] border border-[var(--glass-border-strong)] bg-[var(--glass-surface-strong)] p-0 text-text-primary shadow-[0_40px_120px_-36px_rgba(0,0,0,.72)] sm:my-[6vh] sm:w-[calc(100%-2rem)] sm:rounded-[28px]",
+        "um-modal m-auto flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] flex-col overflow-hidden rounded-[24px] border border-[var(--glass-border-strong)] bg-[var(--glass-surface-strong)] p-0 text-text-primary shadow-[0_40px_120px_-36px_rgba(0,0,0,.72)] sm:w-[calc(100%-2rem)] sm:rounded-[28px]",
         SIZES[size],
         className,
       )}
