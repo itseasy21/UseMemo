@@ -1,4 +1,4 @@
--- UseMemo vault schema: meetings, indexed notes, speakers, diarized transcript,
+-- Use Memo vault schema: meetings, indexed notes, speakers, diarized transcript,
 -- perceptual screenshot frames, grounded synthesis items, folders/tags, and FTS5.
 
 CREATE TABLE folders (
