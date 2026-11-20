@@ -140,6 +140,15 @@ export function TopHeaderBar({
           <Menu className="size-4" aria-hidden="true" />
         </button>
 
+        <button
+          type="button"
+          onClick={openPalette}
+          aria-label="Search meetings and notes"
+          className="flex size-9 items-center justify-center rounded-xl text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary sm:hidden"
+        >
+          <Search className="size-4" aria-hidden="true" />
+        </button>
+
         <Link
           href="/"
           aria-label={`${BRAND.productName} home`}
