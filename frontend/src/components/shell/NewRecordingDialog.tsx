@@ -821,7 +821,9 @@ export function NewRecordingDialog() {
                 <p className="mt-3 text-[11px] leading-4 text-text-muted">
                   {sources.system && systemAvailable
                     ? "Recommended for online meetings. Keeps voices on a separate track."
-                    : "Turn this on for online meetings."}
+                    : systemAvailable
+                      ? "Turn this on for online meetings."
+                      : "Your microphone will still be recorded. Call audio is not supported on this platform yet."}
                 </p>
               </div>
             </div>

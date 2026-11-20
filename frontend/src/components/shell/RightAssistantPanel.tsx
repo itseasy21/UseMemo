@@ -527,7 +527,7 @@ export function RightAssistantPanel({
   return (
     <aside
       aria-label="AI Assistant and workspace tools"
-      className="hidden h-full w-[360px] shrink-0 flex-col border-l border-[var(--glass-border)] bg-[var(--shell-sidebar)] xl:flex 2xl:w-[392px]"
+      className="fixed bottom-0 right-0 top-16 z-40 flex w-[min(360px,calc(100vw-16px))] shrink-0 flex-col border-l border-[var(--glass-border)] bg-[var(--shell-sidebar)] shadow-[-24px_0_70px_-34px_rgba(0,0,0,.8)] xl:static xl:z-auto xl:h-full xl:w-[360px] xl:shadow-none 2xl:w-[392px]"
     >
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--glass-border)] px-3.5">
         <div
