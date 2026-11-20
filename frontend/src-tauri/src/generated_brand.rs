@@ -2,9 +2,9 @@
 #![allow(dead_code)]
 
 pub const BRAND_ID: &str = "use-memo";
-pub const PRODUCT_NAME: &str = "Use Memo";
+pub const PRODUCT_NAME: &str = "UseMemo";
 pub const TAGLINE: &str = "Local-First AI Meeting & Note Studio";
-pub const COMPANY_NAME: &str = "Use Memo Project (GNU GPLv3)";
+pub const COMPANY_NAME: &str = "UseMemo Project (GNU GPLv3)";
 pub const BUNDLE_IDENTIFIER: &str = "org.gnu.usememo";
 pub const BINARY_NAME: &str = "use-memo";
 pub const DEEP_LINK_SCHEME: &str = "usememo";

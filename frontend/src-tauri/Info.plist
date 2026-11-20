@@ -9,8 +9,8 @@
 		denied prompt delivers silence rather than an error.
 	-->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Use Memo records meeting audio on this Mac and transcribes it locally. Nothing is uploaded.</string>
+	<string>UseMemo records meeting audio on this Mac and transcribes it locally. Nothing is uploaded.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>© 2026 Use Memo Project (GNU GPLv3)</string>
+	<string>© 2026 UseMemo Project (GNU GPLv3)</string>
 </dict>
 </plist>

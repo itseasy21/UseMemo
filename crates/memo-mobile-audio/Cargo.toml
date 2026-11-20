@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Microphone permission and audio-session plumbing for Use Memo mobile builds"
+description = "Microphone permission and audio-session plumbing for UseMemo mobile builds"
 links = "memo-mobile-audio"
 
 [build-dependencies]

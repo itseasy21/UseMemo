@@ -256,7 +256,7 @@ emulator. The first-run permission state was reset with `pm revoke` plus
 `pm clear-permission-flags`, then the UI was driven through the real "New recording" flow.
 
 ```text
-Android permission prompt        Allow Use Memo to record audio?
+Android permission prompt        Allow UseMemo to record audio?
 granted choice                  WHILE USING THE APP
 RECORD_AUDIO                    granted=true
 audio focus                     GAIN_TRANSIENT_EXCLUSIVE; usage=VOICE_COMMUNICATION
@@ -300,11 +300,11 @@ Local build evidence (macOS 27.2, arm64):
 
 ```text
 Built application at: target/release/use-memo
-Bundling Use Memo.app
+Bundling UseMemo.app
 Signing with identity "-"
 Finished 2 bundles at:
-    target/release/bundle/macos/Use Memo.app (8.42 MiB)
-    target/release/bundle/dmg/Use Memo_0.1.0_aarch64.dmg (4.54 MiB)
+    target/release/bundle/macos/UseMemo.app (8.42 MiB)
+    target/release/bundle/dmg/UseMemo_0.1.0_aarch64.dmg (4.54 MiB)
 
 codesign --verify --deep --strict  -> valid on disk / satisfies its Designated Requirement
 codesign -d --entitlements         -> com.apple.security.device.audio-input = true
