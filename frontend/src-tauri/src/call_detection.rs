@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -40,6 +39,7 @@ pub struct CallDetectionStatus {
     pub enabled: bool,
     pub backend: String,
     pub detail: String,
+    pub ignored_apps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,26 +102,41 @@ impl CallDetectionState {
         self.enabled.load(Ordering::Acquire)
     }
 
-    pub async fn set_enabled(&self, enabled: bool) -> Result<(), String> {
+    pub fn set_enabled(&self, enabled: bool) -> Result<(), String> {
         self.enabled.store(enabled, Ordering::Release);
-        self.persist().await
+        self.persist()
     }
 
-    pub async fn set_app_enabled(&self, app_id: String, enabled: bool) -> Result<(), String> {
-        let mut disabled = self.disabled_apps.write().await;
+    pub fn set_app_enabled(&self, app_id: String, enabled: bool) -> Result<(), String> {
+        let mut disabled = self
+            .disabled_apps
+            .write()
+            .map_err(|_| "call detection settings lock is poisoned".to_string())?;
         if enabled {
             disabled.remove(&app_id);
         } else {
             disabled.insert(app_id);
         }
         drop(disabled);
-        self.persist().await
+        self.persist()
     }
 
-    async fn persist(&self) -> Result<(), String> {
+    pub fn reset_disabled_apps(&self) -> Result<(), String> {
+        self.disabled_apps
+            .write()
+            .map_err(|_| "call detection settings lock is poisoned".to_string())?
+            .clear();
+        self.persist()
+    }
+
+    fn persist(&self) -> Result<(), String> {
         let settings = PersistedSettings {
             enabled: self.enabled(),
-            disabled_apps: self.disabled_apps.read().await.clone(),
+            disabled_apps: self
+                .disabled_apps
+                .read()
+                .map_err(|_| "call detection settings lock is poisoned".to_string())?
+                .clone(),
         };
         let bytes = serde_json::to_vec_pretty(&settings).map_err(|error| error.to_string())?;
         std::fs::write(&self.settings_path, bytes).map_err(|error| error.to_string())
@@ -311,7 +326,11 @@ async fn run_detector(app: AppHandle, state: Arc<CallDetectionState>) {
             }
         };
         let active = active_apps(&snapshot);
-        let disabled = state.disabled_apps.read().await.clone();
+        let disabled = state
+            .disabled_apps
+            .read()
+            .map(|disabled| disabled.clone())
+            .unwrap_or_default();
         let now = Instant::now();
         let ids: HashSet<&'static str> = phases
             .keys()
@@ -440,6 +459,12 @@ pub fn start(app: &AppHandle, state: Arc<CallDetectionState>) {
 }
 
 pub fn status(state: &CallDetectionState) -> CallDetectionStatus {
+    let mut ignored_apps = state
+        .disabled_apps
+        .read()
+        .map(|apps| apps.iter().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    ignored_apps.sort();
     match platform_snapshot() {
         Ok(snapshot) => CallDetectionStatus {
             supported: snapshot.supported,
@@ -452,12 +477,14 @@ pub fn status(state: &CallDetectionState) -> CallDetectionStatus {
             } else {
                 "Meeting detection is not implemented on this platform yet.".into()
             },
+            ignored_apps,
         },
         Err(error) => CallDetectionStatus {
             supported: false,
             enabled: state.enabled(),
             backend: "unavailable".into(),
             detail: error,
+            ignored_apps,
         },
     }
 }

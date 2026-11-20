@@ -62,6 +62,7 @@ export type CallDetectionStatusRecord = {
   enabled: boolean;
   backend: string;
   detail: string;
+  ignoredApps: string[];
 };
 
 export type CaptureTargetsResponseRecord = {
@@ -652,6 +653,10 @@ export function setCallDetectionEnabled(enabled: boolean) {
 
 export function setCallDetectionAppEnabled(appId: string, enabled: boolean) {
   return invokeHost<void>("set_call_detection_app_enabled", { appId, enabled });
+}
+
+export function resetCallDetectionApps() {
+  return invokeHost<CallDetectionStatusRecord>("reset_call_detection_apps");
 }
 
 // --- Models & Hardware ---

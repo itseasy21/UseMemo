@@ -11,26 +11,34 @@ pub fn call_detection_status(state: State<'_, Arc<CallDetectionState>>) -> CallD
 }
 
 #[tauri::command]
-pub async fn set_call_detection_enabled(
+pub fn set_call_detection_enabled(
     state: State<'_, Arc<CallDetectionState>>,
     enabled: bool,
 ) -> AppResult<CallDetectionStatus> {
     state
         .set_enabled(enabled)
-        .await
         .map_err(crate::error::AppError::Invalid)?;
     Ok(call_detection::status(state.inner().as_ref()))
 }
 
 #[tauri::command]
-pub async fn set_call_detection_app_enabled(
+pub fn set_call_detection_app_enabled(
     state: State<'_, Arc<CallDetectionState>>,
     app_id: String,
     enabled: bool,
 ) -> AppResult<()> {
     state
         .set_app_enabled(app_id, enabled)
-        .await
         .map_err(crate::error::AppError::Invalid)?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn reset_call_detection_apps(
+    state: State<'_, Arc<CallDetectionState>>,
+) -> AppResult<CallDetectionStatus> {
+    state
+        .reset_disabled_apps()
+        .map_err(crate::error::AppError::Invalid)?;
+    Ok(call_detection::status(state.inner().as_ref()))
 }

@@ -83,6 +83,7 @@ pub fn run() {
             commands::call_detection::call_detection_status,
             commands::call_detection::set_call_detection_enabled,
             commands::call_detection::set_call_detection_app_enabled,
+            commands::call_detection::reset_call_detection_apps,
             commands::diagnostics::get_diagnostics_summary,
             commands::diagnostics::export_diagnostics,
             commands::meetings::create_meeting,
