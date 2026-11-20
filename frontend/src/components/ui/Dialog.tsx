@@ -176,12 +176,12 @@ export function Dialog({
         pressedOutsideRef.current = false;
       }}
       className={cn(
-        "um-modal m-auto mt-[6vh] w-[calc(100%-2rem)] overflow-hidden rounded-[28px] border border-[var(--glass-border-strong)] bg-[var(--glass-surface-strong)] p-0 text-text-primary shadow-[0_40px_120px_-36px_rgba(0,0,0,.72)]",
+        "um-modal m-auto my-2 flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] flex-col overflow-hidden rounded-[24px] border border-[var(--glass-border-strong)] bg-[var(--glass-surface-strong)] p-0 text-text-primary shadow-[0_40px_120px_-36px_rgba(0,0,0,.72)] sm:my-[6vh] sm:w-[calc(100%-2rem)] sm:rounded-[28px]",
         SIZES[size],
         className,
       )}
     >
-      <header className="flex items-start justify-between gap-6 border-b border-[var(--glass-border)] px-7 py-6">
+      <header className="flex shrink-0 items-start justify-between gap-6 border-b border-[var(--glass-border)] px-5 py-4 sm:px-7 sm:py-6">
         <div className="min-w-0">
           <h2
             id={titleId}
@@ -202,9 +202,13 @@ export function Dialog({
           <X className="size-4" aria-hidden="true" />
         </IconButton>
       </header>
-      <div className={cn("max-h-[68vh] overflow-y-auto px-7 py-6", bodyClassName)}>{children}</div>
+      <div
+        className={cn("min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-7 sm:py-6", bodyClassName)}
+      >
+        {children}
+      </div>
       {footer && (
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--glass-border)] bg-[color-mix(in_oklab,var(--glass-surface-subtle)_75%,transparent)] px-7 py-4">
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[var(--glass-border)] bg-[color-mix(in_oklab,var(--glass-surface-subtle)_75%,transparent)] px-5 py-3 sm:px-7 sm:py-4">
           {footer}
         </footer>
       )}
