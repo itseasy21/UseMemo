@@ -153,9 +153,11 @@ export function NewRecordingDialog() {
         setCapabilities(nextCaps);
         setHub(nextHub);
         setTargets(nextTargets);
-        if (nextCaps?.systemAudio) {
-          setSources((curr) => ({ ...curr, system: true }));
-        }
+        const systemReady = Boolean(
+          nextCaps?.systemAudio &&
+          (!nextCaps.systemAudioPermissionRequired || nextCaps.systemAudioPermissionGranted),
+        );
+        setSources((curr) => ({ ...curr, system: systemReady }));
       },
     );
     return () => {
@@ -165,7 +167,11 @@ export function NewRecordingDialog() {
 
   useEffect(() => {
     if (!open) return;
-    if (capabilities && !capabilities.systemAudio) {
+    if (
+      capabilities &&
+      (!capabilities.systemAudio ||
+        (capabilities.systemAudioPermissionRequired && !capabilities.systemAudioPermissionGranted))
+    ) {
       setSources((current) => (current.system ? { ...current, system: false } : current));
     }
     if (capabilities && !capabilities.screenshotCapture) {
@@ -349,6 +355,7 @@ export function NewRecordingDialog() {
     const nextCapabilities = await getAudioCapabilities();
     if (nextCapabilities) setCapabilities(nextCapabilities);
     if (granted || nextCapabilities?.systemAudioPermissionGranted) {
+      setSources((current) => ({ ...current, system: true }));
       setCaptureWarning(null);
       return;
     }
