@@ -20,6 +20,7 @@
  *   pnpm brand:check
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,6 +40,36 @@ export interface ThemeTokens {
   recordingPulse: string;
 }
 
+export type SynthesisSectionKind = "bullets" | "decisions" | "actions";
+
+export interface SynthesisTemplateSection {
+  key: string;
+  label: string;
+  kind: SynthesisSectionKind;
+  description?: string;
+}
+
+export interface SynthesisTemplate {
+  name: string;
+  sections: SynthesisTemplateSection[];
+}
+
+export interface CustomModelFileSpec {
+  filename: string;
+  sizeBytes: number;
+  sha256: string;
+}
+
+export interface CustomModelArtifactSpec {
+  id: string;
+  role: "asr" | "fallback_asr" | "diarization_segmentation" | "speaker_embedding" | "slm" | "pro_slm";
+  repo: string;
+  files: CustomModelFileSpec[];
+  description: string;
+  minRamGb: number;
+  accelerator: string;
+}
+
 export interface BrandManifest {
   $schema?: string;
   brandId: string;
@@ -51,6 +82,7 @@ export interface BrandManifest {
   storageDirName: string;
   sqliteFileName: string;
   licenseType: string;
+  copyrightYear?: number;
   assets: {
     appIconSvg: string;
     trayIconMonochrome: string;
@@ -79,7 +111,9 @@ export interface BrandManifest {
     diarizationRepo: string;
     defaultSlmRepo: string;
     proSlmRepo: string;
+    artifacts?: CustomModelArtifactSpec[];
   };
+  synthesisTemplate?: SynthesisTemplate;
 }
 
 const TOKEN_KEYS: Array<keyof ThemeTokens> = [
@@ -97,6 +131,20 @@ const TOKEN_KEYS: Array<keyof ThemeTokens> = [
 const BRAND_ID_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const BUNDLE_ID_RE = /^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z0-9-]+)+$/;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+export function isSafeCssValue(value: string): boolean {
+  if (!value || !value.trim()) return false;
+  if (/[{};<>\\]/.test(value)) return false;
+  if (/@import|url\s*\(|expression\s*\(|javascript:/i.test(value)) return false;
+  return true;
+}
+
+function resolveCopyrightYear(manifest: BrandManifest): number {
+  if (Number.isInteger(manifest.copyrightYear) && (manifest.copyrightYear ?? 0) >= 2000) {
+    return manifest.copyrightYear as number;
+  }
+  return 2026;
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -179,7 +227,11 @@ export function validateManifest(manifest: BrandManifest, root = REPO_ROOT): str
     errors.push("theme.defaultMode must be 'dark' or 'light'");
   }
   for (const field of ["radius", "fontSans", "fontMono"] as const) {
-    if (typeof theme[field] !== "string" || !theme[field].trim()) errors.push(`theme.${field} is required`);
+    if (typeof theme[field] !== "string" || !theme[field].trim()) {
+      errors.push(`theme.${field} is required`);
+    } else if (!isSafeCssValue(theme[field])) {
+      errors.push(`theme.${field} contains unsafe CSS characters`);
+    }
   }
   for (const mode of ["dark", "light"] as const) {
     const tokens = theme.tokens?.[mode];
@@ -190,6 +242,8 @@ export function validateManifest(manifest: BrandManifest, root = REPO_ROOT): str
     for (const key of TOKEN_KEYS) {
       if (typeof tokens[key] !== "string" || !tokens[key].trim()) {
         errors.push(`theme.tokens.${mode}.${key} is required`);
+      } else if (!isSafeCssValue(tokens[key])) {
+        errors.push(`theme.tokens.${mode}.${key} contains unsafe CSS characters`);
       }
     }
   }
@@ -247,6 +301,41 @@ export function validateManifest(manifest: BrandManifest, root = REPO_ROOT): str
     if (!/^https:\/\//.test(registry.hfBaseUrl ?? "")) {
       errors.push("modelRegistry.hfBaseUrl must be HTTPS");
     }
+    if (registry.artifacts !== undefined) {
+      if (!Array.isArray(registry.artifacts) || registry.artifacts.length === 0) {
+        errors.push("modelRegistry.artifacts must be a non-empty array when provided");
+      } else {
+        for (const art of registry.artifacts) {
+          if (!art.id || !art.repo || !Array.isArray(art.files) || art.files.length === 0) {
+            errors.push(`modelRegistry.artifacts entry ${art?.id ?? "<unnamed>"} is incomplete`);
+          }
+          for (const f of art.files ?? []) {
+            if (!/^[a-f0-9]{64}$/i.test(f.sha256 ?? "")) {
+              errors.push(`modelRegistry.artifacts.${art.id}.${f.filename} must have a 64-hex sha256`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (manifest.synthesisTemplate !== undefined) {
+    const tpl = manifest.synthesisTemplate;
+    if (!tpl.name?.trim() || !Array.isArray(tpl.sections) || tpl.sections.length === 0) {
+      errors.push("synthesisTemplate must specify a name and at least one section");
+    } else {
+      for (const sec of tpl.sections) {
+        if (!/^[a-z][a-zA-Z0-9_-]{0,48}$/.test(sec.key ?? "")) {
+          errors.push(`synthesisTemplate section key "${sec.key}" is invalid`);
+        }
+        if (!sec.label?.trim()) {
+          errors.push(`synthesisTemplate section "${sec.key}" requires a label`);
+        }
+        if (!["bullets", "decisions", "actions"].includes(sec.kind)) {
+          errors.push(`synthesisTemplate section "${sec.key}" kind must be bullets, decisions, or actions`);
+        }
+      }
+    }
   }
 
   return errors;
@@ -301,7 +390,7 @@ export function renderTauriConfig(manifest: BrandManifest, version = "0.1.0"): s
         {
           label: "hud",
           title: `${manifest.productName} HUD`,
-          url: "/hud",
+          url: "/hud/",
           width: 320,
           height: 48,
           minWidth: 320,
@@ -322,16 +411,30 @@ export function renderTauriConfig(manifest: BrandManifest, version = "0.1.0"): s
       security: {
         assetProtocol: {
           enable: true,
-          scope: ["$APPDATA/**", "$APPLOCALDATA/**", "$APPCACHE/**", "$TEMP/**"],
+          scope: [
+            `$DATA/${manifest.storageDirName}/media/**`,
+            `$LOCALDATA/${manifest.storageDirName}/media/**`,
+            "$APPDATA/media/**",
+            "$APPLOCALDATA/media/**",
+          ],
         },
         csp: [
           "default-src 'self'",
           "script-src 'self' 'unsafe-inline'",
           "style-src 'self' 'unsafe-inline'",
-          "img-src 'self' asset: http://asset.localhost data: blob:",
-          "media-src 'self' asset: http://asset.localhost blob:",
+          "img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:",
+          "media-src 'self' asset: http://asset.localhost https://asset.localhost blob:",
           "font-src 'self' data:",
-          "connect-src ipc: http://ipc.localhost http://localhost:3000 ws://localhost:3000",
+          "connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost asset: http://asset.localhost https://asset.localhost",
+        ].join("; "),
+        devCsp: [
+          "default-src 'self'",
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:",
+          "media-src 'self' asset: http://asset.localhost https://asset.localhost blob:",
+          "font-src 'self' data:",
+          "connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost asset: http://asset.localhost https://asset.localhost http://localhost:3000 ws://localhost:3000",
         ].join("; "),
         capabilities: ["default"],
       },
@@ -350,7 +453,7 @@ export function renderTauriConfig(manifest: BrandManifest, version = "0.1.0"): s
       category: "Productivity",
       shortDescription: manifest.tagline,
       longDescription: `${manifest.productName} — ${manifest.tagline}. ${manifest.companyName}.`,
-      copyright: `© ${new Date().getUTCFullYear()} ${manifest.companyName}`,
+      copyright: `© ${resolveCopyrightYear(manifest)} ${manifest.companyName}`,
       license: manifest.licenseType,
       macOS: {
         minimumSystemVersion: "13.0",
@@ -371,10 +474,9 @@ export function renderTauriConfig(manifest: BrandManifest, version = "0.1.0"): s
         infoPlist: "Info.ios.plist",
       },
       windows: {
-        webviewInstallMode: { type: "downloadBootstrapper", silent: true },
+        webviewInstallMode: { type: "embedBootstrapper", silent: true },
       },
       linux: {
-        deb: { depends: [] },
         appimage: { bundleMediaFramework: false },
       },
       createUpdaterArtifacts: false,
@@ -398,7 +500,7 @@ function xmlEscape(value: string): string {
  * so a rebrand cannot leak the reference product's name through About panels.
  */
 export function renderInfoPlist(manifest: BrandManifest): string {
-  const year = new Date().getUTCFullYear();
+  const year = resolveCopyrightYear(manifest);
   const productName = xmlEscape(manifest.productName);
   const companyName = xmlEscape(manifest.companyName);
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -421,7 +523,7 @@ export function renderInfoPlist(manifest: BrandManifest): string {
 }
 
 export function renderInfoIosPlist(manifest: BrandManifest): string {
-  const year = new Date().getUTCFullYear();
+  const year = resolveCopyrightYear(manifest);
   const productName = xmlEscape(manifest.productName);
   const companyName = xmlEscape(manifest.companyName);
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -457,7 +559,12 @@ export function renderCapabilities(manifest: BrandManifest): string {
       "core:default",
       "core:window:allow-show",
       "core:window:allow-hide",
+      "core:window:allow-close",
       "core:window:allow-set-focus",
+      "core:window:allow-set-size",
+      "core:window:allow-start-dragging",
+      "deep-link:default",
+      "memo-mobile-audio:default",
     ],
   });
 }
@@ -588,9 +695,38 @@ interface GeneratedFile {
   content: string;
 }
 
+export function renderMobileTauriConfig(manifest: BrandManifest): string {
+  const themeName = manifest.theme.defaultMode === "dark" ? "Dark" : "Light";
+  return json({
+    $schema: "https://schema.tauri.app/config/2",
+    app: {
+      windows: [
+        {
+          label: "main",
+          title: manifest.productName,
+          width: 1360,
+          height: 880,
+          minWidth: 1024,
+          minHeight: 680,
+          center: true,
+          resizable: true,
+          fullscreen: false,
+          visible: true,
+          titleBarStyle: "Overlay",
+          hiddenTitle: true,
+          acceptFirstMouse: true,
+          theme: themeName,
+        },
+      ],
+    },
+  });
+}
+
 export function generateTextFiles(manifest: BrandManifest, root = REPO_ROOT, version = "0.1.0"): GeneratedFile[] {
   return [
     { relativePath: "frontend/src-tauri/tauri.conf.json", content: renderTauriConfig(manifest, version) },
+    { relativePath: "frontend/src-tauri/tauri.android.conf.json", content: renderMobileTauriConfig(manifest) },
+    { relativePath: "frontend/src-tauri/tauri.ios.conf.json", content: renderMobileTauriConfig(manifest) },
     { relativePath: "frontend/src-tauri/Info.plist", content: renderInfoPlist(manifest) },
     { relativePath: "frontend/src-tauri/Info.ios.plist", content: renderInfoIosPlist(manifest) },
     { relativePath: "frontend/src-tauri/capabilities/default.json", content: renderCapabilities(manifest) },
@@ -613,15 +749,95 @@ function writeIfChanged(absolutePath: string, content: string, checkOnly: boolea
   return true;
 }
 
-async function renderPng(svgPath: string, size: number, outputPath: string): Promise<void> {
+/**
+ * Pure-TypeScript multi-resolution Windows `.ico` encoder embedding PNG frames
+ * (`16x16`, `32x32`, `48x48`, `256x256`) so builds on macOS, Linux, and Windows
+ * never skip `icon.ico`.
+ */
+export function encodeIcoFromPngs(frames: Array<{ size: number; png: Buffer }>): Buffer {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); // Reserved
+  header.writeUInt16LE(1, 2); // Type = 1 (ICO)
+  header.writeUInt16LE(frames.length, 4);
+
+  const dirSize = frames.length * 16;
+  const directory = Buffer.alloc(dirSize);
+  let offset = 6 + dirSize;
+
+  frames.forEach((frame, index) => {
+    const entryOffset = index * 16;
+    const dimByte = frame.size >= 256 ? 0 : frame.size;
+    directory.writeUInt8(dimByte, entryOffset); // Width
+    directory.writeUInt8(dimByte, entryOffset + 1); // Height
+    directory.writeUInt8(0, entryOffset + 2); // Color palette
+    directory.writeUInt8(0, entryOffset + 3); // Reserved
+    directory.writeUInt16LE(1, entryOffset + 4); // Color planes
+    directory.writeUInt16LE(32, entryOffset + 6); // Bits per pixel
+    directory.writeUInt32LE(frame.png.length, entryOffset + 8);
+    directory.writeUInt32LE(offset, entryOffset + 12);
+    offset += frame.png.length;
+  });
+
+  return Buffer.concat([header, directory, ...frames.map((f) => f.png)]);
+}
+
+function computeIconInputsDigest(manifest: BrandManifest, root: string): string {
+  const hash = createHash("sha256");
+  for (const rel of [
+    manifest.assets.appIconSvg,
+    manifest.assets.trayIconMonochrome.replace(/\.png$/i, ".svg"),
+    manifest.assets.wordmarkDark,
+    manifest.assets.wordmarkLight,
+  ]) {
+    const full = path.resolve(root, rel);
+    if (fs.existsSync(full)) {
+      hash.update(rel);
+      hash.update(fs.readFileSync(full));
+    }
+  }
+  return hash.digest("hex");
+}
+
+function syncBrandPublicAssets(manifest: BrandManifest, root: string, checkOnly: boolean): string[] {
+  const stale: string[] = [];
+  const pairs: Array<[string, string]> = [
+    [manifest.assets.wordmarkDark, "frontend/public/brand/wordmark-dark.svg"],
+    [manifest.assets.wordmarkLight, "frontend/public/brand/wordmark-light.svg"],
+  ];
+  for (const [srcRel, dstRel] of pairs) {
+    const src = path.resolve(root, srcRel);
+    const dst = path.join(root, dstRel);
+    if (!fs.existsSync(src)) continue;
+    const srcContent = fs.readFileSync(src);
+    const dstContent = fs.existsSync(dst) ? fs.readFileSync(dst) : null;
+    if (!dstContent || !dstContent.equals(srcContent)) {
+      stale.push(dstRel);
+      if (!checkOnly) {
+        fs.mkdirSync(path.dirname(dst), { recursive: true });
+        fs.writeFileSync(dst, srcContent);
+      }
+    }
+  }
+  return stale;
+}
+
+async function renderPngBuffer(svgPath: string, size: number): Promise<Buffer> {
   const { default: sharp } = await import("sharp");
+  return sharp(svgPath, { density: 384 }).resize(size, size, { fit: "contain" }).png().toBuffer();
+}
+
+async function renderPng(svgPath: string, size: number, outputPath: string): Promise<void> {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  await sharp(svgPath, { density: 384 }).resize(size, size, { fit: "contain" }).png().toFile(outputPath);
+  fs.writeFileSync(outputPath, await renderPngBuffer(svgPath, size));
 }
 
 async function generateIcons(manifest: BrandManifest, root: string, checkOnly: boolean): Promise<string[]> {
   const iconsDir = path.join(root, "frontend/src-tauri/icons");
   const svgPath = path.resolve(root, manifest.assets.appIconSvg);
+  const stampPath = path.join(iconsDir, ".source-sha256");
+  const expectedDigest = computeIconInputsDigest(manifest, root);
+  const currentDigest = fs.existsSync(stampPath) ? fs.readFileSync(stampPath, "utf8").trim() : null;
+
   const stale: string[] = [];
   const required = [
     "32x32.png",
@@ -634,18 +850,30 @@ async function generateIcons(manifest: BrandManifest, root: string, checkOnly: b
   for (const file of required) {
     if (!fs.existsSync(path.join(iconsDir, file))) stale.push(`frontend/src-tauri/icons/${file}`);
   }
-  if (checkOnly || stale.length === 0) return stale;
+  if (currentDigest !== null && currentDigest !== expectedDigest && stale.length === 0) {
+    stale.push("frontend/src-tauri/icons/.source-sha256");
+  }
+
+  const assetStale = syncBrandPublicAssets(manifest, root, checkOnly);
+  stale.push(...assetStale);
+
+  if (checkOnly) return stale;
+  if (stale.length === 0 && currentDigest === expectedDigest) return stale;
+  if (stale.length === 0 && currentDigest === null) {
+    // Stamp existing up-to-date icons so future SVG changes invalidate them cleanly.
+    fs.mkdirSync(iconsDir, { recursive: true });
+    fs.writeFileSync(stampPath, `${expectedDigest}\n`, "utf8");
+    return stale;
+  }
 
   const tauriBin = path.join(root, "frontend/node_modules/.bin/tauri");
-  let iconPipelineOk = false;
   if (fs.existsSync(tauriBin)) {
     const result = spawnSync(tauriBin, ["icon", svgPath, "-o", iconsDir], {
       cwd: path.join(root, "frontend"),
       encoding: "utf8",
       env: { ...process.env },
     });
-    iconPipelineOk = result.status === 0;
-    if (!iconPipelineOk) {
+    if (result.status !== 0) {
       console.warn(`warning: tauri icon failed, falling back to sharp (${result.stderr || result.stdout})`);
     }
   }
@@ -655,6 +883,15 @@ async function generateIcons(manifest: BrandManifest, root: string, checkOnly: b
     await renderPng(svgPath, 128, path.join(iconsDir, "128x128.png"));
     await renderPng(svgPath, 256, path.join(iconsDir, "128x128@2x.png"));
     await renderPng(svgPath, 512, path.join(iconsDir, "icon.png"));
+
+    // Always produce a valid multi-resolution Windows `.ico` on every host OS.
+    const icoFrames = await Promise.all(
+      [16, 32, 48, 256].map(async (size) => ({
+        size,
+        png: await renderPngBuffer(svgPath, size),
+      })),
+    );
+    fs.writeFileSync(path.join(iconsDir, "icon.ico"), encodeIcoFromPngs(icoFrames));
 
     const traySvg = path.resolve(root, manifest.assets.trayIconMonochrome.replace(/\.png$/i, ".svg"));
     if (fs.existsSync(traySvg)) {
@@ -689,9 +926,7 @@ async function generateIcons(manifest: BrandManifest, root: string, checkOnly: b
       fs.rmSync(iconset, { recursive: true, force: true });
     }
 
-    if (!iconPipelineOk && process.platform !== "win32") {
-      console.warn("warning: icon.ico was not generated; run `pnpm brand:apply` after `pnpm install` on a build host");
-    }
+    fs.writeFileSync(stampPath, `${expectedDigest}\n`, "utf8");
   } catch (error) {
     console.warn(`warning: icon generation incomplete: ${(error as Error).message}`);
   }

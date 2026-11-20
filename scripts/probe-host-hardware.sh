@@ -77,17 +77,17 @@ fi
 ASR_REPO="ggerganov/whisper.cpp"
 ASR_FILE="ggml-tiny-q5_1.bin"
 ASR_BYTES=32152673
-SLM_REPO="litert-community/gemma-4-E2B-it-litert-lm"
-SLM_FILE="gemma-4-E2B-it.litertlm"
-SLM_BYTES=2588147712
+SLM_REPO="Qwen/Qwen2.5-3B-Instruct-GGUF"
+SLM_FILE="qwen2.5-3b-instruct-q4_k_m.gguf"
+SLM_BYTES=2104932768
 if [[ "$TIER" == "mid" || "$TIER" == "high" ]]; then
   ASR_FILE="ggml-small-q5_1.bin"
   ASR_BYTES=190085487
 fi
 if [[ "$TIER" == "high" ]]; then
-  SLM_REPO="litert-community/gemma-4-E4B-it-litert-lm"
-  SLM_FILE="gemma-4-E4B-it.litertlm"
-  SLM_BYTES=3659530240
+  SLM_REPO="bartowski/google_gemma-3-4b-it-GGUF"
+  SLM_FILE="google_gemma-3-4b-it-Q4_K_M.gguf"
+  SLM_BYTES=2489758112
 fi
 
 KEEP_ASR_WARM="false"

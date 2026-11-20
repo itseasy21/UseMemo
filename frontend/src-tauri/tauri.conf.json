@@ -33,7 +33,7 @@
       {
         "label": "hud",
         "title": "Use Memo HUD",
-        "url": "/hud",
+        "url": "/hud/",
         "width": 320,
         "height": 48,
         "minWidth": 320,
@@ -55,13 +55,14 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$APPDATA/**",
-          "$APPLOCALDATA/**",
-          "$APPCACHE/**",
-          "$TEMP/**"
+          "$DATA/use-memo/media/**",
+          "$LOCALDATA/use-memo/media/**",
+          "$APPDATA/media/**",
+          "$APPLOCALDATA/media/**"
         ]
       },
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost http://localhost:3000 ws://localhost:3000",
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost https://asset.localhost blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost asset: http://asset.localhost https://asset.localhost",
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost https://asset.localhost blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost asset: http://asset.localhost https://asset.localhost http://localhost:3000 ws://localhost:3000",
       "capabilities": [
         "default"
       ]
@@ -97,14 +98,11 @@
     },
     "windows": {
       "webviewInstallMode": {
-        "type": "downloadBootstrapper",
+        "type": "embedBootstrapper",
         "silent": true
       }
     },
     "linux": {
-      "deb": {
-        "depends": []
-      },
       "appimage": {
         "bundleMediaFramework": false
       }

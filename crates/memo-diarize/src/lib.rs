@@ -48,7 +48,7 @@ impl Default for DiarizationConfig {
             max_speakers: 6,
             min_separation: 2.2,
             min_cluster_ms: 4_000,
-            max_transition_rate: 0.6,
+            max_transition_rate: 0.35,
             merge_gap_ms: 350,
         }
     }
@@ -300,12 +300,113 @@ fn embed(features: &FrameFeatures, first: usize, last: usize) -> Vec<f32> {
         .sqrt();
     }
 
+    // Cepstral normalization on c0 (overall log-energy): anchor c0 to a fixed
+    // loudness-invariant reference so mic distance / gain shifts never split a
+    // single speaker, and zero c0 edge-fade variance/deltas while preserving
+    // c1..c19 vocal-tract spectral envelope statistics.
+    mean[0] = -16.0;
+    variance[0] = 0.0;
+    delta_mean[0] = 0.0;
+    delta_variance[0] = 0.0;
+
     let mut embedding = Vec::with_capacity(MFCC_COUNT * 4);
     embedding.extend_from_slice(&mean);
     embedding.extend_from_slice(&variance);
     embedding.extend_from_slice(&delta_mean);
     embedding.extend_from_slice(&delta_variance);
     embedding
+}
+
+pub const EMBEDDING_DIM: usize = MFCC_COUNT * 4;
+
+fn l2_normalize_vec(values: &mut [f32]) -> bool {
+    let norm = values.iter().map(|v| v * v).sum::<f32>().sqrt();
+    if norm <= 1e-8 || !norm.is_finite() {
+        return false;
+    }
+    for value in values {
+        *value /= norm;
+    }
+    true
+}
+
+/// Compute an L2-normalized acoustic voiceprint centroid over the specified
+/// `(start_ms, end_ms)` ranges of 16 kHz mono audio.
+pub fn voiceprint_centroid(samples_16k: &[f32], ranges_ms: &[(i64, i64)]) -> Option<Vec<f32>> {
+    if samples_16k.len() < features::FRAME_LEN || ranges_ms.is_empty() {
+        return None;
+    }
+    let features = extract(samples_16k);
+    if features.is_empty() {
+        return None;
+    }
+
+    let mut centroid = vec![0.0f32; EMBEDDING_DIM];
+    let mut windows_used = 0usize;
+
+    for &(start_ms, end_ms) in ranges_ms {
+        let clamped_start = start_ms.max(0);
+        let clamped_end = end_ms.max(clamped_start);
+        if clamped_end - clamped_start < 400 {
+            continue;
+        }
+        let first = (clamped_start / HOP_MS as i64) as usize;
+        let last =
+            (((clamped_end + HOP_MS as i64 - 1) / HOP_MS as i64) as usize).min(features.len());
+        if last <= first || last - first < 25 {
+            continue;
+        }
+        let mut window_emb = embed(&features, first, last);
+        if l2_normalize_vec(&mut window_emb) {
+            for (acc, val) in centroid.iter_mut().zip(window_emb.iter()) {
+                *acc += *val;
+            }
+            windows_used += 1;
+        }
+    }
+
+    centroid[0] = 0.0;
+    if windows_used == 0 || !l2_normalize_vec(&mut centroid) {
+        return None;
+    }
+    Some(centroid)
+}
+
+/// Cosine similarity in `[-1.0, 1.0]` between two voiceprint centroids.
+pub fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
+    if left.len() != right.len() || left.is_empty() {
+        return 0.0;
+    }
+    let dot: f32 = left.iter().zip(right.iter()).map(|(a, b)| a * b).sum();
+    let norm_l = left.iter().map(|a| a * a).sum::<f32>().sqrt();
+    let norm_r = right.iter().map(|b| b * b).sum::<f32>().sqrt();
+    if norm_l <= 1e-8 || norm_r <= 1e-8 {
+        return 0.0;
+    }
+    (dot / (norm_l * norm_r)).clamp(-1.0, 1.0)
+}
+
+pub fn encode_centroid_bytes(centroid: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(centroid.len() * 4);
+    for &value in centroid {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes
+}
+
+pub fn decode_centroid_bytes(bytes: &[u8]) -> Option<Vec<f32>> {
+    if bytes.len() != EMBEDDING_DIM * 4 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(EMBEDDING_DIM);
+    for &chunk in bytes.as_chunks::<4>().0 {
+        let val = f32::from_le_bytes(chunk);
+        if !val.is_finite() {
+            return None;
+        }
+        out.push(val);
+    }
+    Some(out)
 }
 
 /// Majority vote over neighbouring windows from the same speech region. A
@@ -501,5 +602,45 @@ mod tests {
         assert_eq!(speaker_at(&turns, 900, 1_400), Some(2));
         assert_eq!(speaker_at(&turns, 2_500, 2_700), Some(2));
         assert_eq!(speaker_at(&turns, 4_000, 4_500), None);
+    }
+
+    #[test]
+    fn voiceprint_centroid_is_loudness_invariant_and_roundtrips_bytes() {
+        let speaker_a_quiet = voice(118.0, 3.0, &[1.0, 0.62, 0.24, 0.09, 0.04]);
+        let speaker_a_loud: Vec<f32> = speaker_a_quiet
+            .iter()
+            .map(|s| (s * 2.4).clamp(-1.0, 1.0))
+            .collect();
+        let speaker_b = voice(212.0, 3.0, &[0.55, 1.0, 0.5, 0.22, 0.14]);
+
+        let c_a1 = voiceprint_centroid(&speaker_a_quiet, &[(100, 2_900)]).unwrap();
+        let c_a2 = voiceprint_centroid(&speaker_a_loud, &[(100, 2_900)]).unwrap();
+        let c_b = voiceprint_centroid(&speaker_b, &[(100, 2_900)]).unwrap();
+
+        let same_sim = cosine_similarity(&c_a1, &c_a2);
+        let diff_sim = cosine_similarity(&c_a1, &c_b);
+        assert!(
+            same_sim > 0.95,
+            "expected loudness-invariant similarity > 0.95, got {same_sim}"
+        );
+        assert!(
+            same_sim > diff_sim + 0.08,
+            "expected distinct timbre separation: same={same_sim}, diff={diff_sim}"
+        );
+
+        let encoded = encode_centroid_bytes(&c_a1);
+        let decoded = decode_centroid_bytes(&encoded).unwrap();
+        assert_eq!(c_a1, decoded);
+    }
+
+    #[test]
+    fn custom_max_transition_rate_is_honored() {
+        let audio = two_speakers();
+        let strict = DiarizationConfig {
+            max_transition_rate: 0.01,
+            ..Default::default()
+        };
+        let collapsed = diarize(&audio, &strict);
+        assert_eq!(collapsed.speakers, 1);
     }
 }

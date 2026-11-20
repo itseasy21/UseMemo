@@ -22,7 +22,8 @@
     "tauri:dev": "pnpm --filter @use-memo/frontend tauri:dev",
     "tauri:build": "pnpm --filter @use-memo/frontend tauri:build",
     "test:rust": "cargo test --workspace",
-    "test": "pnpm brand:test && pnpm package:test && pnpm airgap:test && pnpm test:rust",
+    "test:frontend": "pnpm --filter @use-memo/frontend test",
+    "test": "pnpm brand:test && pnpm package:test && pnpm airgap:test && pnpm test:frontend && pnpm test:rust",
     "format:check": "cargo fmt --all -- --check && pnpm --filter @use-memo/frontend format:check"
   },
   "devDependencies": {

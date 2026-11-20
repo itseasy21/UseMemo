@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
@@ -9,6 +10,7 @@ import {
   CornerDownLeft,
   Cpu,
   FileDown,
+  FileJson,
   Mic,
   NotebookPen,
   Presentation,
@@ -22,10 +24,25 @@ import {
 
 import { Kbd } from "@/components/ui/Kbd";
 import { PRODUCT_NAME } from "@/generated/brand";
-import { MEETINGS, PENDING_ACTIONS, meetingActionOwner, type Meeting } from "@/lib/demo-data";
+import {
+  MEETINGS,
+  PENDING_ACTIONS,
+  meetingActionOwner,
+  meetingHref,
+  type Meeting,
+} from "@/lib/demo-data";
 import { formatTimestamp } from "@/lib/format";
-import { SEEK_HANDOFF_PREFIX } from "@/lib/session-keys";
-import { isTauri } from "@/lib/tauri";
+import {
+  captureScreenshot,
+  exportDiagnostics,
+  listMeetings,
+  recordingStatus,
+  searchVaultHost,
+  type MeetingRecord,
+  type SearchHitRecord,
+} from "@/lib/host";
+import { isImeComposing } from "@/lib/ime";
+import { modKeyPrefix, shiftModKeyPrefix } from "@/lib/platform";
 import {
   CATEGORY_META,
   SEARCH_DOCS,
@@ -35,6 +52,8 @@ import {
   type SearchCategory,
   type SearchDoc,
 } from "@/lib/search";
+import { SEEK_HANDOFF_PREFIX } from "@/lib/session-keys";
+import { formatHostError, isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -42,6 +61,7 @@ type PaletteItem = {
   id: string;
   label: string;
   subtitle: string;
+  htmlSnippet?: string;
   icon: LucideIcon;
   hint?: string;
   category?: SearchCategory;
@@ -76,11 +96,41 @@ function Highlighted({ text, query }: { text: string; query: string }) {
   );
 }
 
-function navigate(path: string) {
-  window.location.assign(path);
+/**
+ * Render sanitized FTS5 snippet HTML (`<mark>…</mark>` with all user characters
+ * already HTML-escaped on the Rust side) into safe React spans/marks without
+ * `dangerouslySetInnerHTML`.
+ */
+function SanitizedFtsSnippet({ snippet }: { snippet: string }) {
+  const unescapeEntities = (raw: string) =>
+    raw
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&quot;", '"')
+      .replaceAll("&#39;", "'")
+      .replaceAll("&amp;", "&");
+
+  const parts = snippet.split(/(<mark>.*?<\/mark>)/g).filter(Boolean);
+  return (
+    <>
+      {parts.map((part, idx) => {
+        if (part.startsWith("<mark>") && part.endsWith("</mark>")) {
+          return (
+            <mark
+              key={idx}
+              className="rounded-[2px] bg-accent-primary/20 px-px text-accent-primary"
+            >
+              {unescapeEntities(part.slice(6, -7))}
+            </mark>
+          );
+        }
+        return <span key={idx}>{unescapeEntities(part)}</span>;
+      })}
+    </>
+  );
 }
 
-function exportVaultMarkdown() {
+function exportDemoVaultMarkdown() {
   const lines: string[] = [
     "---",
     `product: "${PRODUCT_NAME}"`,
@@ -109,16 +159,6 @@ function exportVaultMarkdown() {
         `- [${action.done ? "x" : " "}] ${action.task} — owner: ${owner} — due: ${deadline}`,
       );
     });
-    lines.push("", "## Notes", "");
-    meeting.notes.forEach((note) => {
-      lines.push(`- **${formatTimestamp(note.startMs)}** ${note.text}`);
-    });
-    lines.push("", "## Transcript", "");
-    meeting.transcripts.forEach((segment) => {
-      const speaker =
-        meeting.participants.find((person) => person.id === segment.speakerId)?.name ?? "Speaker";
-      lines.push(`**${formatTimestamp(segment.startMs)} · ${speaker}** — ${segment.confirmedText}`);
-    });
     lines.push("", "---", "");
   }
 
@@ -135,17 +175,6 @@ function exportVaultMarkdown() {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-function openSearchDoc(doc: SearchDoc) {
-  try {
-    if (doc.category !== "memo") {
-      window.sessionStorage.setItem(`${SEEK_HANDOFF_PREFIX}${doc.meetingId}`, String(doc.startMs));
-    }
-  } catch {
-    // Session handoff is a progressive enhancement.
-  }
-  navigate(`/meeting/${doc.meetingId}/`);
-}
-
 function docIcon(category: SearchCategory): LucideIcon {
   switch (category) {
     case "memo":
@@ -160,6 +189,7 @@ function docIcon(category: SearchCategory): LucideIcon {
 }
 
 export function CommandPalette() {
+  const router = useRouter();
   const open = useWorkspaceStore((state) => state.paletteOpen);
   const closePalette = useWorkspaceStore((state) => state.closePalette);
   const openNewRecording = useWorkspaceStore((state) => state.openNewRecording);
@@ -170,11 +200,15 @@ export function CommandPalette() {
   const [native, setNative] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [recentMeetings, setRecentMeetings] = useState<MeetingRecord[]>([]);
+  const [hostHits, setHostHits] = useState<SearchHitRecord[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const listId = useId();
+  const modKey = modKeyPrefix();
+  const shiftModKey = shiftModKeyPrefix();
 
   useEffect(() => setNative(isTauri()), []);
 
@@ -183,6 +217,11 @@ export function CommandPalette() {
     previousFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const raf = window.requestAnimationFrame(() => inputRef.current?.focus());
+    if (isTauri()) {
+      void listMeetings().then((rows) => {
+        if (rows) setRecentMeetings(rows.slice(0, 8));
+      });
+    }
     return () => {
       window.cancelAnimationFrame(raf);
       previousFocus.current?.focus();
@@ -191,12 +230,34 @@ export function CommandPalette() {
 
   useEffect(() => {
     setQuery("");
+    setHostHits([]);
     setActiveIndex(0);
   }, [open]);
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [query]);
+    if (!open || !native) return;
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setHostHits([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void searchVaultHost(trimmed, { limit: 24 }).then((hits) => {
+        if (!cancelled) setHostHits(hits ?? []);
+      });
+    }, 100);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [native, open, query]);
+
+  const navigateTo = (path: string) => {
+    closePalette();
+    router.push(path);
+  };
 
   const commands = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = [
@@ -205,23 +266,60 @@ export function CommandPalette() {
         label: "Start Recording",
         subtitle: "New local capture · mic + system audio",
         icon: Mic,
-        hint: "⌘N",
+        hint: `${modKey}N`,
         onSelect: () => openNewRecording(),
+      },
+      {
+        id: "cmd-snap",
+        label: "Take Screenshot",
+        subtitle: "Manual snap · dHash dedupe · stored in vault",
+        icon: Camera,
+        hint: `${shiftModKey}S`,
+        onSelect: () => {
+          closePalette();
+          if (!native) {
+            pushToast(
+              "Screenshot captured",
+              "Manual snap · stored as WebP · perceptual dedupe passed",
+              "success",
+            );
+            return;
+          }
+          void (async () => {
+            try {
+              const snap = await recordingStatus();
+              const targetId = snap?.meetingId ?? recentMeetings[0]?.id;
+              if (!targetId) {
+                pushToast(
+                  "No meeting open",
+                  "Start a recording first to capture a slide.",
+                  "accent",
+                );
+                return;
+              }
+              const result = await captureScreenshot(targetId);
+              if (result?.deduplicated) {
+                pushToast("Slide unchanged", result.reason, "default");
+              } else {
+                pushToast("Screenshot captured", "Saved locally as WebP.", "success");
+              }
+            } catch (err) {
+              pushToast("Screenshot failed", formatHostError(err), "danger");
+            }
+          })();
+        },
       },
       {
         id: "cmd-model",
         label: "Open AI Models",
-        subtitle: "On-device transcription and language models",
+        subtitle: "On-device transcription and synthesis models",
         icon: Cpu,
-        onSelect: () => {
-          closePalette();
-          navigate("/models/");
-        },
+        onSelect: () => navigateTo("/models/"),
       },
       {
         id: "cmd-theme",
         label: `Switch to ${theme === "dark" ? "Light" : "Dark"} Theme`,
-        subtitle: "Change how the app looks",
+        subtitle: "Change how the app looks across windows",
         icon: SunMoon,
         onSelect: () => {
           toggleTheme();
@@ -230,30 +328,38 @@ export function CommandPalette() {
       },
     ];
 
-    if (!native) {
-      items.splice(1, 0, {
-        id: "cmd-snap",
-        label: "Take Screenshot",
-        subtitle: "Manual snap · dHash dedupe · stored in vault",
-        icon: Camera,
-        hint: "⇧⌘S",
+    if (native) {
+      items.push({
+        id: "cmd-diagnostics",
+        label: "Export Diagnostics Bundle",
+        subtitle: "Sanitized hardware, model, & log JSON (zero meeting content)",
+        icon: FileJson,
         onSelect: () => {
           closePalette();
-          pushToast(
-            "Screenshot captured",
-            "Manual snap · stored as WebP · perceptual dedupe passed",
-            "success",
-          );
+          void exportDiagnostics()
+            .then((outcome) => {
+              if (outcome) {
+                pushToast(
+                  "Diagnostics exported",
+                  `${outcome.path} (${outcome.logLines} log lines)`,
+                  "success",
+                );
+              }
+            })
+            .catch((err) => {
+              pushToast("Could not export diagnostics", formatHostError(err), "danger");
+            });
         },
       });
-      items.splice(items.length - 1, 0, {
+    } else {
+      items.push({
         id: "cmd-export",
-        label: "Export Vault to Markdown",
-        subtitle: `${MEETINGS.length} demos · frontmatter + relative assets`,
+        label: "Export Demo Vault to Markdown",
+        subtitle: `${MEETINGS.length} demos · frontmatter + citations`,
         icon: FileDown,
         onSelect: () => {
           closePalette();
-          exportVaultMarkdown();
+          exportDemoVaultMarkdown();
           pushToast(
             "Vault exported",
             "Markdown bundle written locally · no network egress",
@@ -264,7 +370,40 @@ export function CommandPalette() {
     }
 
     return items;
-  }, [closePalette, native, openNewRecording, pushToast, theme, toggleTheme]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    modKey,
+    native,
+    openNewRecording,
+    pushToast,
+    recentMeetings,
+    shiftModKey,
+    theme,
+    toggleTheme,
+  ]);
+
+  const toDemoDocItem = (doc: SearchDoc, q: string): PaletteItem => ({
+    id: doc.id,
+    label: doc.title,
+    subtitle: q ? makeSnippet(doc.snippet, q) : `${doc.meetingTitle} · ${doc.snippet}`,
+    icon: docIcon(doc.category),
+    category: doc.category,
+    timeLabel: doc.category === "memo" ? undefined : formatTimestamp(doc.startMs),
+    query: q,
+    onSelect: () => {
+      try {
+        if (doc.category !== "memo") {
+          window.sessionStorage.setItem(
+            `${SEEK_HANDOFF_PREFIX}${doc.meetingId}`,
+            String(doc.startMs),
+          );
+        }
+      } catch {
+        // Ignore storage restrictions.
+      }
+      navigateTo(meetingHref(doc.meetingId));
+    },
+  });
 
   const sections = useMemo<Section[]>(() => {
     const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -277,14 +416,42 @@ export function CommandPalette() {
       .map((command) => ({ ...command, query, category: undefined }));
 
     if (native) {
-      return [{ id: "commands", label: "Actions", items: matchedCommands }].filter(
-        (section) => section.items.length > 0,
-      );
+      if (!query.trim()) {
+        const recents: PaletteItem[] = recentMeetings.map((m) => ({
+          id: `recent-${m.id}`,
+          label: m.title,
+          subtitle: `${m.status} · ${formatTimestamp(m.durationMs)}`,
+          icon: NotebookPen,
+          category: "memo",
+          timeLabel: formatTimestamp(m.durationMs),
+          onSelect: () => navigateTo(meetingHref(m.id)),
+        }));
+        return [
+          { id: "commands", label: "Commands", items: matchedCommands },
+          { id: "recent", label: "Recent memos", items: recents },
+        ].filter((section) => section.items.length > 0);
+      }
+
+      const ftsItems: PaletteItem[] = hostHits.map((hit) => ({
+        id: `fts-${hit.meetingId}`,
+        label: hit.title,
+        subtitle: hit.snippet,
+        htmlSnippet: hit.snippet,
+        icon: NotebookPen,
+        category: "memo",
+        query,
+        onSelect: () => navigateTo(meetingHref(hit.meetingId)),
+      }));
+
+      return [
+        { id: "commands", label: "Commands", items: matchedCommands },
+        { id: "vault-hits", label: "SQLite FTS5 Matches", items: ftsItems },
+      ].filter((section) => section.items.length > 0);
     }
 
     if (!query.trim()) {
       const recent = SEARCH_DOCS.filter((doc) => doc.category === "memo").map((doc) =>
-        toDocItem(doc, ""),
+        toDemoDocItem(doc, ""),
       );
       return [
         { id: "commands", label: "Commands", items: matchedCommands },
@@ -296,7 +463,7 @@ export function CommandPalette() {
     const grouped = new Map<SearchCategory, PaletteItem[]>();
     for (const doc of docs) {
       const items = grouped.get(doc.category) ?? [];
-      items.push(toDocItem(doc, query));
+      items.push(toDemoDocItem(doc, query));
       grouped.set(doc.category, items);
     }
     return [
@@ -309,7 +476,8 @@ export function CommandPalette() {
         }))
         .filter((section) => section.items.length > 0),
     ];
-  }, [commands, native, query]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commands, hostHits, native, query, recentMeetings]);
 
   const flatItems = useMemo(() => sections.flatMap((section) => section.items), [sections]);
   const safeIndex = flatItems.length === 0 ? -1 : Math.min(activeIndex, flatItems.length - 1);
@@ -328,6 +496,7 @@ export function CommandPalette() {
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (isImeComposing(event)) return;
     if (event.key === "Escape") {
       event.preventDefault();
       closePalette();
@@ -384,16 +553,16 @@ export function CommandPalette() {
         className="glass w-full max-w-[680px] overflow-hidden rounded-[calc(var(--radius-brand)+6px)] shadow-[0_40px_120px_-24px_oklch(0_0_0/0.75)]"
       >
         <h2 id={titleId} className="sr-only">
-          {native ? "Command menu" : "Search the local vault"}
+          Search the local vault and run commands
         </h2>
         <div className="flex items-center gap-3 border-b border-border-subtle px-4 py-3">
-          <Search className="size-4 shrink-0 text-text-muted" />
+          <Search className="size-4 shrink-0 text-text-muted" aria-hidden="true" />
           <input
             ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={native ? "Type a command…" : "Search notes, transcripts, slides…"}
-            aria-label={native ? "Command menu" : "Search the local vault"}
+            placeholder="Search memos, notes, transcripts, slides, or type a command…"
+            aria-label="Search the local vault"
             role="combobox"
             aria-expanded="true"
             aria-controls={listId}
@@ -412,7 +581,7 @@ export function CommandPalette() {
               }}
               className="rounded p-1 text-text-muted hover:text-text-primary"
             >
-              <X className="size-3.5" />
+              <X className="size-3.5" aria-hidden="true" />
             </button>
           ) : (
             <Kbd>esc</Kbd>
@@ -422,29 +591,25 @@ export function CommandPalette() {
         <div
           id={listId}
           role="listbox"
-          aria-label={native ? "Actions" : "Vault search results"}
+          aria-label="Vault search results"
           className="max-h-[min(58vh,480px)] overflow-y-auto overscroll-contain p-2"
         >
           {flatItems.length === 0 ? (
             <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
               <span className="mb-3 flex size-10 items-center justify-center rounded-full border border-border-subtle bg-bg-primary/40 text-text-muted">
-                <ShieldCheck className="size-4" />
+                <ShieldCheck className="size-4" aria-hidden="true" />
               </span>
-              <p className="text-sm font-medium text-text-primary">
-                {native ? "No matching actions" : "No local matches"}
-              </p>
+              <p className="text-sm font-medium text-text-primary">No local matches</p>
               <p className="mt-1 max-w-sm text-xs leading-5 text-text-muted">
-                {native
-                  ? "Try a different command."
-                  : `The FTS5 index searched ${SEARCH_DOCS.length} demo passages. Nothing left the machine.`}
+                SQLite FTS5 searched your local vault. Nothing left this device.
               </p>
             </div>
           ) : (
             sections.map((section) => (
               <div key={section.id} className="mb-1.5 last:mb-0">
-                <p className="px-2.5 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-[0.16em] text-text-muted/80">
+                <p className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted/80">
                   {section.label}
-                  <span className="ml-1.5 font-mono text-[8px] tracking-normal text-text-muted/60">
+                  <span className="ml-1.5 font-mono text-[10px] tracking-normal text-text-muted/65">
                     {section.items.length}
                   </span>
                 </p>
@@ -475,31 +640,38 @@ export function CommandPalette() {
                             : "border-border-subtle bg-bg-primary/40 text-text-muted",
                         )}
                       >
-                        <Icon className="size-3.5" />
+                        <Icon className="size-3.5" aria-hidden="true" />
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
-                          <span className="truncate text-[12.5px] font-medium text-text-primary">
+                          <span className="truncate text-[13px] font-medium text-text-primary">
                             <Highlighted text={item.label} query={item.query ?? ""} />
                           </span>
                           {item.category && (
-                            <span className="shrink-0 rounded-full border border-border-subtle px-1.5 py-px text-[8px] uppercase tracking-[0.08em] text-text-muted">
+                            <span className="shrink-0 rounded-full border border-border-subtle px-1.5 py-px text-[9.5px] uppercase tracking-[0.08em] text-text-muted">
                               {CATEGORY_META[item.category].short}
                             </span>
                           )}
                         </span>
-                        <span className="mt-0.5 block truncate text-[10.5px] leading-4 text-text-muted">
-                          <Highlighted text={item.subtitle} query={item.query ?? ""} />
+                        <span className="mt-0.5 block truncate text-[11px] leading-4 text-text-muted">
+                          {item.htmlSnippet ? (
+                            <SanitizedFtsSnippet snippet={item.htmlSnippet} />
+                          ) : (
+                            <Highlighted text={item.subtitle} query={item.query ?? ""} />
+                          )}
                         </span>
                       </span>
                       {item.timeLabel && (
-                        <span className="tabular shrink-0 text-[10px] text-text-muted">
+                        <span className="tabular shrink-0 text-[10.5px] text-text-muted">
                           {item.timeLabel}
                         </span>
                       )}
                       {item.hint && <Kbd>{item.hint}</Kbd>}
                       {selected && (
-                        <CornerDownLeft className="size-3 shrink-0 text-text-muted/70" />
+                        <CornerDownLeft
+                          className="size-3.5 shrink-0 text-text-muted/70"
+                          aria-hidden="true"
+                        />
                       )}
                     </button>
                   );
@@ -510,14 +682,14 @@ export function CommandPalette() {
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t border-border-subtle bg-bg-primary/30 px-4 py-2">
-          <div className="flex items-center gap-3 text-[9.5px] text-text-muted">
+          <div className="flex items-center gap-3 text-[10.5px] text-text-muted">
             <span className="flex items-center gap-1">
-              <ArrowUp className="size-2.5" />
-              <ArrowDown className="size-2.5" />
+              <ArrowUp className="size-3" aria-hidden="true" />
+              <ArrowDown className="size-3" aria-hidden="true" />
               navigate
             </span>
             <span className="flex items-center gap-1">
-              <CornerDownLeft className="size-2.5" />
+              <CornerDownLeft className="size-3" aria-hidden="true" />
               open
             </span>
             <span className="hidden items-center gap-1 sm:flex">
@@ -525,9 +697,9 @@ export function CommandPalette() {
               close
             </span>
           </div>
-          <div className="flex items-center gap-1.5 text-[9.5px] text-text-muted">
+          <div className="flex items-center gap-1.5 text-[10.5px] text-text-muted">
             <span className="size-1.5 rounded-full bg-accent-primary" />
-            {native ? "Local actions" : "SQLite FTS5"}
+            SQLite FTS5
             {!native && (
               <>
                 <span className="text-border-subtle">·</span>
@@ -541,22 +713,6 @@ export function CommandPalette() {
       </div>
     </div>
   );
-}
-
-function toDocItem(doc: SearchDoc, query: string): PaletteItem {
-  return {
-    id: doc.id,
-    label: doc.title,
-    subtitle: query ? makeSnippet(doc.snippet, query) : `${doc.meetingTitle} · ${doc.snippet}`,
-    icon: docIcon(doc.category),
-    category: doc.category,
-    timeLabel: doc.category === "memo" ? undefined : formatTimestamp(doc.startMs),
-    query,
-    onSelect: () => {
-      useWorkspaceStore.getState().closePalette();
-      openSearchDoc(doc);
-    },
-  };
 }
 
 export function findMeetingForDoc(doc: SearchDoc): Meeting | undefined {

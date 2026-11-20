@@ -1,11 +1,63 @@
+use std::collections::BTreeSet;
+
 use crate::storage::{Meeting, NoteBlock, Screenshot, Speaker, TranscriptSegment};
 
 use super::evidence::{format_timestamp, note_evidence_id, timestamp_evidence_id, EvidenceIndex};
 
 #[derive(Debug, Clone)]
 pub struct SynthesisContext {
+    pub header_and_notes: String,
+    pub transcript_lines: Vec<String>,
+    pub participants_footer: String,
     pub text: String,
     pub index: EvidenceIndex,
+}
+
+impl SynthesisContext {
+    /// Split a long context document into bounded windows (`<= max_chars`) that
+    /// each carry the full meeting header, manual notes, slide OCR, and known
+    /// participants alongside a contiguous window of transcript lines.
+    pub fn windowed_texts(&self, max_chars: usize) -> Vec<String> {
+        if self.text.len() <= max_chars || self.transcript_lines.is_empty() {
+            return vec![self.text.clone()];
+        }
+
+        let fixed_overhead = self.header_and_notes.len() + self.participants_footer.len() + 128;
+        let budget = max_chars.saturating_sub(fixed_overhead).max(4_096);
+
+        let mut windows = Vec::new();
+        let mut idx = 0usize;
+        while idx < self.transcript_lines.len() {
+            let mut chunk = String::new();
+            let start_idx = idx;
+            while idx < self.transcript_lines.len() {
+                let line = &self.transcript_lines[idx];
+                if !chunk.is_empty() && chunk.len() + line.len() + 1 > budget {
+                    break;
+                }
+                chunk.push_str(line);
+                chunk.push('\n');
+                idx += 1;
+            }
+            if idx == start_idx {
+                chunk.push_str(&self.transcript_lines[idx]);
+                chunk.push('\n');
+                idx += 1;
+            }
+            let doc = format!(
+                "{}=== DIARIZED MEETING TRANSCRIPT ===\n{}\n{}",
+                self.header_and_notes, chunk, self.participants_footer
+            );
+            windows.push(doc);
+
+            // Overlap by 2 lines so sentences/deadlines spanning a boundary stay grounded.
+            if idx < self.transcript_lines.len() && idx > start_idx + 2 {
+                idx -= 2;
+            }
+        }
+
+        windows
+    }
 }
 
 /// Assemble the strictly indexed context document. Every bullet emitted by the
@@ -18,36 +70,38 @@ pub fn build_context(
     speakers: &[Speaker],
 ) -> SynthesisContext {
     let index = EvidenceIndex::from_records(notes, transcript, screenshots, speakers);
-    let mut out = String::new();
+    let mut header_and_notes = String::new();
 
-    out.push_str("=== MEETING ===\n");
-    out.push_str(&format!("Title: {}\n", sanitize(&meeting.title)));
-    out.push_str(&format!("Status: {}\n", meeting.status));
-    out.push_str(&format!(
+    header_and_notes.push_str("=== MEETING ===\n");
+    header_and_notes.push_str(&format!("Title: {}\n", sanitize(&meeting.title)));
+    header_and_notes.push_str(&format!("Status: {}\n", meeting.status));
+    header_and_notes.push_str(&format!(
         "Duration: {}s\n\n",
         meeting.duration_ms.max(0) / 1000
     ));
 
-    out.push_str("=== USER MANUAL NOTES (HIGHEST PRIORITY) ===\n");
+    header_and_notes.push_str("=== USER MANUAL NOTES (HIGHEST PRIORITY) ===\n");
     if notes.is_empty() {
-        out.push_str("(none)\n");
+        header_and_notes.push_str("(none)\n");
     } else {
         let mut ordered = notes.to_vec();
         ordered.sort_by_key(|note| note.line_index);
         for note in &ordered {
             let id = note_evidence_id(note.line_index);
             match note.recording_offset_ms {
-                Some(offset) => out.push_str(&format!(
+                Some(offset) => header_and_notes.push_str(&format!(
                     "[{} @ {}] {}\n",
                     id,
                     format_timestamp(offset),
                     sanitize(&note.content_md)
                 )),
-                None => out.push_str(&format!("[{}] {}\n", id, sanitize(&note.content_md))),
+                None => {
+                    header_and_notes.push_str(&format!("[{}] {}\n", id, sanitize(&note.content_md)))
+                }
             }
         }
     }
-    out.push('\n');
+    header_and_notes.push('\n');
 
     let visual: Vec<&Screenshot> = screenshots
         .iter()
@@ -59,28 +113,32 @@ pub fn build_context(
         })
         .collect();
     if !visual.is_empty() {
-        out.push_str("=== VISUAL SLIDE CAPTURES ===\n");
+        header_and_notes.push_str("=== VISUAL SLIDE CAPTURES ===\n");
         for shot in visual {
             let id = timestamp_evidence_id("S", shot.start_ms);
-            out.push_str(&format!(
+            header_and_notes.push_str(&format!(
                 "[{}] {}\n",
                 id,
                 sanitize(shot.ocr_extracted_text.as_deref().unwrap_or_default())
             ));
         }
-        out.push('\n');
+        header_and_notes.push('\n');
     }
 
-    out.push_str("=== DIARIZED MEETING TRANSCRIPT ===\n");
-    if transcript.is_empty() {
-        out.push_str("(none)\n");
-    } else {
+    let mut transcript_lines = Vec::new();
+    if !transcript.is_empty() {
         let mut ordered = transcript.to_vec();
         ordered.sort_by_key(|segment| segment.seq_no);
+        let mut seen_seconds: BTreeSet<String> = BTreeSet::new();
         for segment in &ordered {
-            let id = timestamp_evidence_id("T", segment.start_ms);
-            out.push_str(&format!(
-                "[{} - {} | {}] {}\n",
+            let base_id = timestamp_evidence_id("T", segment.start_ms);
+            let id = if seen_seconds.insert(base_id.clone()) {
+                base_id
+            } else {
+                format!("{base_id}#{}", segment.seq_no)
+            };
+            transcript_lines.push(format!(
+                "[{} - {} | {}] {}",
                 id,
                 format_timestamp(segment.end_ms),
                 sanitize(&segment.speaker_label),
@@ -88,18 +146,36 @@ pub fn build_context(
             ));
         }
     }
-    out.push('\n');
 
-    out.push_str("=== KNOWN PARTICIPANTS ===\n");
+    let mut participants_footer = String::from("=== KNOWN PARTICIPANTS ===\n");
     let participants: Vec<String> = index.speakers.iter().cloned().collect();
     if participants.is_empty() {
-        out.push_str("You\n");
+        participants_footer.push_str("You\n");
     } else {
-        out.push_str(&participants.join(", "));
-        out.push('\n');
+        participants_footer.push_str(&participants.join(", "));
+        participants_footer.push('\n');
     }
 
-    SynthesisContext { text: out, index }
+    let mut full_text = header_and_notes.clone();
+    full_text.push_str("=== DIARIZED MEETING TRANSCRIPT ===\n");
+    if transcript_lines.is_empty() {
+        full_text.push_str("(none)\n\n");
+    } else {
+        for line in &transcript_lines {
+            full_text.push_str(line);
+            full_text.push('\n');
+        }
+        full_text.push('\n');
+    }
+    full_text.push_str(&participants_footer);
+
+    SynthesisContext {
+        header_and_notes,
+        transcript_lines,
+        participants_footer,
+        text: full_text,
+        index,
+    }
 }
 
 fn sanitize(value: &str) -> String {
@@ -130,8 +206,8 @@ mod tests {
             system_audio_started_at_ms: 0,
             diarization_enabled: false,
             screenshot_interval_sec: 10,
-            asr_model_id: "parakeet".into(),
-            slm_model_id: "gemma".into(),
+            asr_model_id: "whisper-small".into(),
+            slm_model_id: "qwen2.5-3b-instruct".into(),
             manual_notes_raw_md: String::new(),
             folder_id: None,
             is_starred: false,
@@ -233,6 +309,29 @@ mod tests {
         assert!(context.index.contains("N-L1"));
         assert!(context.index.contains("T-09:20"));
         assert!(context.index.contains("S-04:10"));
+    }
+
+    #[test]
+    fn windowed_texts_splits_long_transcripts_while_retaining_notes() {
+        let notes = vec![note(1, Some(5_000), "Manual anchor note")];
+        let transcript: Vec<_> = (1..=40)
+            .map(|seq| {
+                segment(
+                    seq,
+                    seq * 5_000,
+                    seq * 5_000 + 4_000,
+                    "Sarah",
+                    &"Long discussion sentence about architectural trade-offs. ".repeat(6),
+                )
+            })
+            .collect();
+        let context = build_context(&meeting(), &notes, &transcript, &[], &[]);
+        let windows = context.windowed_texts(5_000);
+        assert!(windows.len() >= 2);
+        for w in &windows {
+            assert!(w.contains("Manual anchor note"));
+            assert!(w.contains("=== KNOWN PARTICIPANTS ==="));
+        }
     }
 
     #[test]

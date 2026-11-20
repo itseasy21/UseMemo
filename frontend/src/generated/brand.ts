@@ -14,6 +14,7 @@ export const BRAND = {
     "storageDirName": "use-memo",
     "sqliteFileName": "use_memo_vault.db",
     "licenseType": "GPL-3.0-or-later",
+    "copyrightYear": 2026,
     "assets": {
       "appIconSvg": "./brand/assets/icon.svg",
       "trayIconMonochrome": "./brand/assets/tray-Template.png",
@@ -63,8 +64,8 @@ export const BRAND = {
       "defaultAsrRepo": "ggerganov/whisper.cpp",
       "fallbackAsrRepo": "ggerganov/whisper.cpp",
       "diarizationRepo": "litert-community/Speaker-Diarization-LiteRT",
-      "defaultSlmRepo": "litert-community/gemma-4-E2B-it-litert-lm",
-      "proSlmRepo": "litert-community/gemma-4-E4B-it-litert-lm"
+      "defaultSlmRepo": "Qwen/Qwen2.5-3B-Instruct-GGUF",
+      "proSlmRepo": "bartowski/google_gemma-3-4b-it-GGUF"
     }
   } as const;
 

@@ -84,6 +84,12 @@ pub async fn transcribe_meeting(
 }
 
 #[tauri::command]
+pub async fn cancel_transcription(state: State<'_, AppState>) -> AppResult<()> {
+    state.request_asr_cancel();
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn list_transcript(
     state: State<'_, AppState>,
     meeting_id: String,
@@ -113,8 +119,71 @@ pub async fn rename_speaker(
     new_name: String,
     save_voiceprint: bool,
 ) -> AppResult<Speaker> {
-    state
+    let speaker = state
         .db
         .rename_speaker(&meeting_id, &old_label, &new_name, save_voiceprint)
+        .await?;
+
+    if save_voiceprint && state.brand.manifest().features.enable_voiceprint_enrollment {
+        if let Ok(meeting) = state.db.get_meeting(&meeting_id).await {
+            if let Ok(segments) = state.db.list_transcript(&meeting_id).await {
+                let target_id = speaker.id.clone();
+                let matching: Vec<_> = segments
+                    .into_iter()
+                    .filter(|seg| seg.speaker_id.as_deref() == Some(target_id.as_str()))
+                    .collect();
+                if let Some(first) = matching.first() {
+                    let is_system = first.audio_channel == "system";
+                    let path_opt = if is_system {
+                        meeting.system_audio_file_path.clone()
+                    } else {
+                        meeting.audio_file_path.clone()
+                    };
+                    let track_offset = if is_system {
+                        meeting.system_audio_started_at_ms.max(0)
+                    } else {
+                        0
+                    };
+                    if let Some(wav_path) = path_opt.map(std::path::PathBuf::from) {
+                        let ranges: Vec<(i64, i64)> = matching
+                            .iter()
+                            .map(|seg| {
+                                let start = (seg.start_ms - track_offset).max(0);
+                                let end = (seg.end_ms - track_offset).max(start);
+                                (start, end)
+                            })
+                            .collect();
+                        if let Ok(Some(centroid)) = tokio::task::spawn_blocking(move || {
+                            crate::asr::transcribe::compute_voiceprint_for_wav(&wav_path, &ranges)
+                        })
+                        .await
+                        {
+                            if let Ok(updated) = state
+                                .db
+                                .set_speaker_voiceprint(&speaker.id, &centroid)
+                                .await
+                            {
+                                return Ok(updated);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(speaker)
+}
+
+#[tauri::command]
+pub async fn update_transcript_segment(
+    state: State<'_, AppState>,
+    segment_id: String,
+    text: Option<String>,
+    speaker_label: Option<String>,
+) -> AppResult<TranscriptSegment> {
+    state
+        .db
+        .update_transcript_segment(&segment_id, text.as_deref(), speaker_label.as_deref())
         .await
 }

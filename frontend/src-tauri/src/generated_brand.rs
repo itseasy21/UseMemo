@@ -52,8 +52,8 @@ pub const HF_BASE_URL: &str = "https://huggingface.co";
 pub const DEFAULT_ASR_REPO: &str = "ggerganov/whisper.cpp";
 pub const FALLBACK_ASR_REPO: &str = "ggerganov/whisper.cpp";
 pub const DIARIZATION_REPO: &str = "litert-community/Speaker-Diarization-LiteRT";
-pub const DEFAULT_SLM_REPO: &str = "litert-community/gemma-4-E2B-it-litert-lm";
-pub const PRO_SLM_REPO: &str = "litert-community/gemma-4-E4B-it-litert-lm";
+pub const DEFAULT_SLM_REPO: &str = "Qwen/Qwen2.5-3B-Instruct-GGUF";
+pub const PRO_SLM_REPO: &str = "bartowski/google_gemma-3-4b-it-GGUF";
 
 /// Full resolved manifest, embedded so runtime brand overrides can be validated
 /// against the exact build-time contract.

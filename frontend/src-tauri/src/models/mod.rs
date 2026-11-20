@@ -1,18 +1,19 @@
-//! Resumable LiteRT model downloads with SHA-256 verification.
-//!
-//! The model hub is the only place the app touches the network, and it talks
-//! exclusively to the configured Hugging Face base URL. Partial files are kept
-//! as `.part` siblings so an interrupted download resumes with a Range request.
+//! Resumable model downloads with SHA-256 verification, per-artifact write
+//! serialization, and clean cancellation that preserves `.part` files for HTTP
+//! Range resume.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::fs::OpenOptions as TokioOpenOptions;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::{watch, Mutex};
 
 use crate::error::{AppError, AppResult};
 use crate::model_registry::{safe_model_filename, ModelArtifact, ModelFile};
@@ -50,6 +51,8 @@ pub struct ModelDownloader {
     client: reqwest::Client,
     base_url: String,
     models_dir: PathBuf,
+    locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    cancellations: Arc<Mutex<HashMap<String, watch::Sender<bool>>>>,
 }
 
 impl ModelDownloader {
@@ -67,11 +70,32 @@ impl ModelDownloader {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
             models_dir: models_dir.into(),
+            locks: Arc::new(Mutex::new(HashMap::new())),
+            cancellations: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
     pub fn models_dir(&self) -> &Path {
         &self.models_dir
+    }
+
+    /// Request cancellation of an in-flight download for `artifact_id`.
+    /// Returns `true` if an active download was signaled.
+    pub async fn cancel(&self, artifact_id: &str) -> bool {
+        let map = self.cancellations.lock().await;
+        if let Some(tx) = map.get(artifact_id) {
+            let _ = tx.send(true);
+            return true;
+        }
+        false
+    }
+
+    async fn artifact_lock(&self, key: &str) -> Arc<Mutex<()>> {
+        let mut map = self.locks.lock().await;
+        Arc::clone(
+            map.entry(key.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(()))),
+        )
     }
 
     pub async fn download<F>(
@@ -83,17 +107,92 @@ impl ModelDownloader {
     where
         F: FnMut(DownloadProgress),
     {
+        if std::env::var("MEMO_FORCE_AIRGAP_NO_DOWNLOAD").as_deref() == Ok("1") {
+            return Err(AppError::Download(
+                "network model downloads are disabled by strict air-gap policy; pre-stage verified files into the models directory".into(),
+            ));
+        }
+
         let filename = safe_model_filename(&file.filename)?;
         if file.size_bytes == 0 {
             return Err(AppError::Download(
                 "model file has zero expected size".into(),
             ));
         }
+
+        // Serialize concurrent downloads targeting the same `(artifact, file)` so
+        // two overlapping requests can never interleave writes into `.part`.
+        let lock_key = format!("{}:{filename}", artifact.id);
+        let file_mutex = self.artifact_lock(&lock_key).await;
+        let _file_guard = file_mutex.lock().await;
+
         let destination = artifact.local_path(&self.models_dir, filename);
+        if destination.is_file()
+            && fs::metadata(&destination)
+                .map(|meta| meta.len() == file.size_bytes)
+                .unwrap_or(false)
+        {
+            let dest_for_hash = destination.clone();
+            if let Ok(Ok(digest)) =
+                tokio::task::spawn_blocking(move || sha256_file(&dest_for_hash)).await
+            {
+                if file.sha256.eq_ignore_ascii_case(&digest) {
+                    on_progress(progress(
+                        artifact,
+                        file,
+                        file.size_bytes,
+                        DownloadPhase::Complete,
+                    ));
+                    return Ok(DownloadReport {
+                        path: destination.to_string_lossy().into_owned(),
+                        bytes: file.size_bytes,
+                        sha256: digest,
+                        resumed_from: file.size_bytes,
+                    });
+                }
+            }
+        }
+
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)?;
         }
-        let part = partial_path(&destination);
+
+        let (cancel_tx, mut cancel_rx) = watch::channel(false);
+        {
+            self.cancellations
+                .lock()
+                .await
+                .insert(artifact.id.clone(), cancel_tx);
+        }
+
+        let outcome = self
+            .download_locked(
+                artifact,
+                file,
+                filename,
+                &destination,
+                &mut cancel_rx,
+                &mut on_progress,
+            )
+            .await;
+
+        self.cancellations.lock().await.remove(&artifact.id);
+        outcome
+    }
+
+    async fn download_locked<F>(
+        &self,
+        artifact: &ModelArtifact,
+        file: &ModelFile,
+        filename: &str,
+        destination: &Path,
+        cancel_rx: &mut watch::Receiver<bool>,
+        on_progress: &mut F,
+    ) -> AppResult<DownloadReport>
+    where
+        F: FnMut(DownloadProgress),
+    {
+        let part = partial_path(destination);
         let mut existing = fs::metadata(&part).map(|meta| meta.len()).unwrap_or(0);
         if existing > file.size_bytes {
             fs::remove_file(&part)?;
@@ -144,25 +243,43 @@ impl ModelDownloader {
             DownloadPhase::Downloading,
         ));
         let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            output.write_all(&chunk).await?;
-            downloaded = downloaded.saturating_add(chunk.len() as u64);
-            if downloaded > file.size_bytes {
-                drop(output);
-                let _ = fs::remove_file(&part);
-                return Err(AppError::Download(format!(
-                    "{filename} exceeded its declared {}-byte size",
-                    file.size_bytes
-                )));
+
+        loop {
+            tokio::select! {
+                changed = cancel_rx.changed() => {
+                    if changed.is_ok() && *cancel_rx.borrow() {
+                        let _ = output.flush().await;
+                        return Err(AppError::Download(format!(
+                            "download of {} cancelled ({downloaded}/{} bytes saved for resume)",
+                            artifact.id, file.size_bytes
+                        )));
+                    }
+                }
+                next_chunk = stream.next() => {
+                    let Some(chunk) = next_chunk else {
+                        break;
+                    };
+                    let chunk = chunk?;
+                    output.write_all(&chunk).await?;
+                    downloaded = downloaded.saturating_add(chunk.len() as u64);
+                    if downloaded > file.size_bytes {
+                        drop(output);
+                        let _ = fs::remove_file(&part);
+                        return Err(AppError::Download(format!(
+                            "{filename} exceeded its declared {}-byte size",
+                            file.size_bytes
+                        )));
+                    }
+                    on_progress(progress(
+                        artifact,
+                        file,
+                        downloaded,
+                        DownloadPhase::Downloading,
+                    ));
+                }
             }
-            on_progress(progress(
-                artifact,
-                file,
-                downloaded,
-                DownloadPhase::Downloading,
-            ));
         }
+
         output.flush().await?;
         drop(output);
 
@@ -192,9 +309,9 @@ impl ModelDownloader {
             )));
         }
         if destination.exists() {
-            fs::remove_file(&destination)?;
+            fs::remove_file(destination)?;
         }
-        fs::rename(&part, &destination)?;
+        fs::rename(&part, destination)?;
         on_progress(progress(
             artifact,
             file,
@@ -366,6 +483,30 @@ mod tests {
         assert!(phases.contains(&DownloadPhase::Verifying));
         assert_eq!(phases.last(), Some(&DownloadPhase::Complete));
         assert!(!partial_path(Path::new(&report.path)).exists());
+    }
+
+    #[tokio::test]
+    async fn concurrent_identical_downloads_serialize_and_short_circuit_after_verification() {
+        let body = vec![5u8; 16 * 1024];
+        // Only ONE HTTP connection is served — the second concurrent caller must
+        // wait on the per-artifact lock and then see the verified file on disk!
+        let (base, server) = serve_once(body.clone(), 0);
+        let dir = tempfile::tempdir().unwrap();
+        let downloader = ModelDownloader::new(base, dir.path()).unwrap();
+        let model = artifact(body.len() as u64, sha256_bytes(&body));
+
+        let d1 = downloader.clone();
+        let m1 = model.clone();
+        let d2 = downloader.clone();
+        let m2 = model.clone();
+
+        let (r1, r2) = tokio::join!(
+            d1.download(&m1, &m1.files[0], |_| {}),
+            d2.download(&m2, &m2.files[0], |_| {})
+        );
+        server.join().unwrap();
+        assert_eq!(r1.unwrap().bytes, body.len() as u64);
+        assert_eq!(r2.unwrap().bytes, body.len() as u64);
     }
 
     #[tokio::test]

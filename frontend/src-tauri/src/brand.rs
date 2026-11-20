@@ -21,13 +21,42 @@ pub struct BrandManifest {
     pub storage_dir_name: String,
     pub sqlite_file_name: String,
     pub license_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copyright_year: Option<u32>,
     pub assets: BrandAssets,
     pub theme: BrandTheme,
     pub features: BrandFeatures,
     pub model_registry: ModelRegistry,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synthesis_template: Option<SynthesisTemplate>,
     /// Runtime-only additive section. Not present in the shipped base manifest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompts: Option<PromptTemplates>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SynthesisSectionKind {
+    Bullets,
+    Decisions,
+    Actions,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthesisTemplateSection {
+    pub key: String,
+    pub label: String,
+    pub kind: SynthesisSectionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthesisTemplate {
+    pub name: String,
+    pub sections: Vec<SynthesisTemplateSection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +127,8 @@ pub struct ModelRegistry {
     pub diarization_repo: String,
     pub default_slm_repo: String,
     pub pro_slm_repo: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifacts: Option<Vec<crate::model_registry::ModelArtifact>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -194,33 +225,66 @@ const OVERRIDABLE_KEYS: &[&str] = &[
     "theme",
     "assets",
     "features",
+    "synthesisTemplate",
     "prompts",
 ];
 
+fn managed_override_candidates(manifest: &BrandManifest) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    #[cfg(target_os = "macos")]
+    {
+        candidates.push(
+            PathBuf::from("/Library/Managed Preferences")
+                .join(format!("{}.json", manifest.bundle_identifier)),
+        );
+        candidates.push(
+            PathBuf::from("/Library/Application Support")
+                .join(&manifest.storage_dir_name)
+                .join("brand.override.json"),
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(prog_data) = std::env::var_os("ProgramData") {
+            candidates.push(
+                PathBuf::from(prog_data)
+                    .join(&manifest.storage_dir_name)
+                    .join("brand.override.json"),
+            );
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        candidates.push(
+            PathBuf::from("/etc")
+                .join(&manifest.storage_dir_name)
+                .join("brand.override.json"),
+        );
+    }
+    candidates
+}
+
 impl Brand {
-    /// Load the embedded manifest. If `override_path` is provided (or the default
-    /// per-brand path exists when `None`), apply the restricted enterprise override.
+    /// Load the embedded manifest. If `override_path` is provided (or an OS MDM /
+    /// per-brand override file exists when `None`), apply the restricted override.
     pub fn load(override_path: Option<&Path>) -> AppResult<Self> {
         let manifest: BrandManifest = serde_json::from_str(generated_brand::BRAND_MANIFEST_JSON)?;
         validate(&manifest)?;
 
-        let default_path;
-        let path = match override_path {
-            Some(path) => Some(path),
+        let resolved_candidate: Option<PathBuf> = match override_path {
+            Some(path) => path.is_file().then(|| path.to_path_buf()),
             None => {
-                let paths = BrandPaths::for_manifest(&manifest)?;
-                default_path = paths.brand_override_path;
-                if default_path.is_file() {
-                    Some(default_path.as_path())
-                } else {
-                    None
+                let mut candidates = managed_override_candidates(&manifest);
+                if let Ok(paths) = BrandPaths::for_manifest(&manifest) {
+                    candidates.push(paths.brand_override_path);
                 }
+                candidates.into_iter().find(|p| p.is_file())
             }
         };
 
-        match path {
-            Some(path) if path.is_file() => {
-                let raw = std::fs::read_to_string(path)?;
+        match resolved_candidate {
+            Some(path) => {
+                let raw = std::fs::read_to_string(&path)?;
                 let overlay: serde_json::Value = serde_json::from_str(&raw)?;
                 let merged = apply_override(&manifest, overlay)?;
                 Ok(Self {
@@ -228,7 +292,7 @@ impl Brand {
                     override_applied: true,
                 })
             }
-            _ => Ok(Self {
+            None => Ok(Self {
                 manifest,
                 override_applied: false,
             }),
@@ -253,6 +317,96 @@ impl Brand {
 
     pub fn prompts(&self) -> PromptTemplates {
         self.manifest.prompts.clone().unwrap_or_default()
+    }
+
+    /// Return a copy of `Brand` with an optional synthesis template preset applied.
+    pub fn with_template(&self, template_id: Option<&str>) -> Self {
+        let mut copy = self.clone();
+        match template_id
+            .map(|s| s.trim().to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("soap") => {
+                copy.manifest.synthesis_template = Some(SynthesisTemplate {
+                    name: "Clinical SOAP".into(),
+                    sections: vec![
+                        SynthesisTemplateSection {
+                            key: "subjective".into(),
+                            label: "Subjective".into(),
+                            kind: SynthesisSectionKind::Bullets,
+                            description: Some(
+                                "Reported symptoms, history, or speaker context.".into(),
+                            ),
+                        },
+                        SynthesisTemplateSection {
+                            key: "objective".into(),
+                            label: "Objective".into(),
+                            kind: SynthesisSectionKind::Bullets,
+                            description: Some(
+                                "Observed facts, measurements, or slide data.".into(),
+                            ),
+                        },
+                        SynthesisTemplateSection {
+                            key: "assessment".into(),
+                            label: "Assessment".into(),
+                            kind: SynthesisSectionKind::Decisions,
+                            description: Some("Key conclusions, diagnosis, or decisions.".into()),
+                        },
+                        SynthesisTemplateSection {
+                            key: "plan".into(),
+                            label: "Plan".into(),
+                            kind: SynthesisSectionKind::Actions,
+                            description: Some("Follow-up steps, tasks, and owners.".into()),
+                        },
+                    ],
+                });
+            }
+            Some("exec") => {
+                copy.manifest.synthesis_template = Some(SynthesisTemplate {
+                    name: "Executive Brief".into(),
+                    sections: vec![
+                        SynthesisTemplateSection {
+                            key: "strategic_context".into(),
+                            label: "Strategic Context".into(),
+                            kind: SynthesisSectionKind::Bullets,
+                            description: Some("High-level summary and business impact.".into()),
+                        },
+                        SynthesisTemplateSection {
+                            key: "risks_and_blockers".into(),
+                            label: "Risks & Blockers".into(),
+                            kind: SynthesisSectionKind::Bullets,
+                            description: Some("Open risks, dependencies, or blockers.".into()),
+                        },
+                    ],
+                });
+            }
+            Some("sync") => {
+                copy.manifest.synthesis_template = Some(SynthesisTemplate {
+                    name: "1:1 Check-in".into(),
+                    sections: vec![
+                        SynthesisTemplateSection {
+                            key: "wins_and_progress".into(),
+                            label: "Wins & Progress".into(),
+                            kind: SynthesisSectionKind::Bullets,
+                            description: Some(
+                                "Recent progress, milestones, and highlights.".into(),
+                            ),
+                        },
+                        SynthesisTemplateSection {
+                            key: "blockers_and_support".into(),
+                            label: "Blockers & Support Needed".into(),
+                            kind: SynthesisSectionKind::Bullets,
+                            description: Some("Challenges, questions, or help requested.".into()),
+                        },
+                    ],
+                });
+            }
+            Some("general") => {
+                copy.manifest.synthesis_template = None;
+            }
+            _ => {}
+        }
+        copy
     }
 }
 
@@ -304,6 +458,42 @@ fn deep_merge_json(base: &mut serde_json::Value, overlay: &serde_json::Value) {
     }
 }
 
+pub fn is_safe_css_value(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.contains(['{', '}', ';', '<', '>', '\\']) {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    !(lower.contains("@import")
+        || lower.contains("url(")
+        || lower.contains("expression(")
+        || lower.contains("javascript:"))
+}
+
+fn validate_tokens(tokens: &ThemeTokens, mode: &str) -> AppResult<()> {
+    for (name, val) in [
+        ("bgPrimary", &tokens.bg_primary),
+        ("bgElevated", &tokens.bg_elevated),
+        ("bgGlass", &tokens.bg_glass),
+        ("borderSubtle", &tokens.border_subtle),
+        ("textPrimary", &tokens.text_primary),
+        ("textMuted", &tokens.text_muted),
+        ("accentPrimary", &tokens.accent_primary),
+        ("accentSecondary", &tokens.accent_secondary),
+        ("recordingPulse", &tokens.recording_pulse),
+    ] {
+        if !is_safe_css_value(val) {
+            return Err(AppError::Invalid(format!(
+                "theme.tokens.{mode}.{name} is empty or contains unsafe CSS characters"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn validate(manifest: &BrandManifest) -> AppResult<()> {
     if manifest.brand_id.trim().is_empty() {
         return Err(AppError::Invalid("brandId is empty".into()));
@@ -318,15 +508,30 @@ fn validate(manifest: &BrandManifest) -> AppResult<()> {
             "sqliteFileName must not contain path separators".into(),
         ));
     }
-    if manifest.theme.tokens.dark.accent_primary.trim().is_empty()
-        || manifest.theme.tokens.light.accent_primary.trim().is_empty()
-    {
-        return Err(AppError::Invalid("theme accent tokens are empty".into()));
+    for (name, val) in [
+        ("radius", &manifest.theme.radius),
+        ("fontSans", &manifest.theme.font_sans),
+        ("fontMono", &manifest.theme.font_mono),
+    ] {
+        if !is_safe_css_value(val) {
+            return Err(AppError::Invalid(format!(
+                "theme.{name} is empty or contains unsafe CSS characters"
+            )));
+        }
     }
+    validate_tokens(&manifest.theme.tokens.dark, "dark")?;
+    validate_tokens(&manifest.theme.tokens.light, "light")?;
     if !(5..=3600).contains(&manifest.features.default_screenshot_interval_sec) {
         return Err(AppError::Invalid(
             "defaultScreenshotIntervalSec must be between 5 and 3600".into(),
         ));
+    }
+    if let Some(tpl) = manifest.synthesis_template.as_ref() {
+        if tpl.name.trim().is_empty() || tpl.sections.is_empty() {
+            return Err(AppError::Invalid(
+                "synthesisTemplate must define a non-empty name and sections".into(),
+            ));
+        }
     }
     Ok(())
 }

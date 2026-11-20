@@ -58,17 +58,43 @@ impl EvidenceIndex {
             });
         }
 
-        for segment in transcript {
-            let id = timestamp_evidence_id("T", segment.start_ms);
+        let mut ordered_transcript = transcript.to_vec();
+        ordered_transcript.sort_by_key(|seg| seg.seq_no);
+        let mut seen_seconds: BTreeSet<String> = BTreeSet::new();
+
+        for segment in &ordered_transcript {
+            let base_id = timestamp_evidence_id("T", segment.start_ms);
+            let canonical_id = if seen_seconds.insert(base_id.clone()) {
+                base_id.clone()
+            } else {
+                format!("{base_id}#{}", segment.seq_no)
+            };
+
             index.speakers.insert(segment.speaker_label.clone());
             index
                 .transcript_by_seq
                 .insert(segment.seq_no, segment.text.clone());
             index
                 .transcript_seq_by_id
-                .insert(id.clone(), segment.seq_no);
+                .insert(canonical_id.clone(), segment.seq_no);
+            if canonical_id == base_id {
+                let disambiguated_alias = format!("{base_id}#{}", segment.seq_no);
+                index
+                    .transcript_seq_by_id
+                    .insert(disambiguated_alias.clone(), segment.seq_no);
+                index.insert(EvidenceSource {
+                    id: disambiguated_alias,
+                    kind: EvidenceKind::Transcript,
+                    text: segment.text.clone(),
+                    start_ms: Some(segment.start_ms),
+                    end_ms: Some(segment.end_ms),
+                    seq_no: Some(segment.seq_no),
+                    label: Some(segment.speaker_label.clone()),
+                });
+            }
+
             index.insert(EvidenceSource {
-                id,
+                id: canonical_id,
                 kind: EvidenceKind::Transcript,
                 text: segment.text.clone(),
                 start_ms: Some(segment.start_ms),
@@ -192,7 +218,15 @@ pub fn format_timestamp(ms: i64) -> String {
 }
 
 pub fn normalize_evidence_id(id: &str) -> String {
-    id.trim().trim_matches(['[', ']', ' ']).to_ascii_uppercase()
+    let cleaned = id
+        .trim()
+        .trim_matches(['[', ']', ' ', '"', '\''])
+        .to_ascii_uppercase();
+    if cleaned.as_bytes().first().is_some_and(u8::is_ascii_digit) && cleaned.contains(':') {
+        format!("T-{cleaned}")
+    } else {
+        cleaned
+    }
 }
 
 pub fn normalize_name(name: &str) -> String {
@@ -275,7 +309,44 @@ mod tests {
         assert_eq!(format_timestamp(245_000), "04:05");
         assert_eq!(timestamp_evidence_id("T", 245_000), "T-04:05");
         assert_eq!(note_evidence_id(2), "N-L2");
-        assert_eq!(normalize_evidence_id(" [t-04:05] "), "T-04:05");
+        assert_eq!(normalize_evidence_id(" [t-04:05#2] "), "T-04:05#2");
+    }
+
+    #[test]
+    fn disambiguates_same_second_transcript_segments() {
+        let transcript = vec![
+            TranscriptSegment {
+                id: "t1".into(),
+                meeting_id: "m".into(),
+                seq_no: 1,
+                start_ms: 10_200,
+                end_ms: 12_000,
+                speaker_id: None,
+                speaker_label: "You".into(),
+                audio_channel: "mic".into(),
+                text: "First utterance".into(),
+                is_confirmed: true,
+            },
+            TranscriptSegment {
+                id: "t2".into(),
+                meeting_id: "m".into(),
+                seq_no: 2,
+                start_ms: 10_800,
+                end_ms: 14_000,
+                speaker_id: None,
+                speaker_label: "Alex".into(),
+                audio_channel: "system".into(),
+                text: "Overlapping utterance".into(),
+                is_confirmed: true,
+            },
+        ];
+        let index = EvidenceIndex::from_records(&[], &transcript, &[], &[]);
+        assert_eq!(index.get("T-00:10").unwrap().text, "First utterance");
+        assert_eq!(
+            index.get("T-00:10#2").unwrap().text,
+            "Overlapping utterance"
+        );
+        assert_eq!(index.transcript_seq_for("T-00:10#2"), Some(2));
     }
 
     #[test]

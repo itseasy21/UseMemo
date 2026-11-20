@@ -1,12 +1,15 @@
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
-use sqlx::{FromRow, QueryBuilder, Sqlite, SqlitePool};
+use sqlx::{FromRow, QueryBuilder, Sqlite, SqliteConnection, SqlitePool};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::brand::BrandPaths;
 use crate::error::{AppError, AppResult};
 use crate::synthesis::types::SynthesisItemDraft;
 
@@ -135,6 +138,18 @@ pub struct CreateMeetingInput {
     pub diarization: Option<bool>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMeetingPatch {
+    pub title: Option<String>,
+    pub folder_id: Option<String>,
+    #[serde(default)]
+    pub clear_folder: bool,
+    pub diarization_enabled: Option<bool>,
+    pub asr_model_id: Option<String>,
+    pub slm_model_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewNoteBlock {
@@ -200,9 +215,25 @@ pub struct SynthesisItemPatch {
     pub is_completed: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultCounts {
+    pub meetings: i64,
+    pub transcript_segments: i64,
+    pub note_blocks: i64,
+    pub screenshots: i64,
+    pub synthesis_items: i64,
+    pub speakers: i64,
+    pub folders: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct Database {
     pool: SqlitePool,
+    /// Serializes multi-statement SQLite writers in async space so concurrent
+    /// screenshot capture, live note autosave, and transcription never collide
+    /// on deferred read->write promotion (`SQLITE_BUSY_SNAPSHOT`).
+    write_lock: Arc<Mutex<()>>,
 }
 
 impl Database {
@@ -215,12 +246,15 @@ impl Database {
             .create_if_missing(true)
             .foreign_keys(true)
             .journal_mode(SqliteJournalMode::Wal)
-            .busy_timeout(Duration::from_secs(5));
+            .busy_timeout(Duration::from_secs(10));
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(options)
             .await?;
-        let database = Self { pool };
+        let database = Self {
+            pool,
+            write_lock: Arc::new(Mutex::new(())),
+        };
         database.migrate().await?;
         Ok(database)
     }
@@ -234,18 +268,153 @@ impl Database {
             .max_connections(1)
             .connect_with(options)
             .await?;
-        let database = Self { pool };
+        let database = Self {
+            pool,
+            write_lock: Arc::new(Mutex::new(())),
+        };
         database.migrate().await?;
         Ok(database)
     }
 
     pub async fn migrate(&self) -> AppResult<()> {
+        let _guard = self.write_lock.lock().await;
         sqlx::migrate!("./migrations").run(&self.pool).await?;
         Ok(())
     }
 
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    /// Re-index a single meeting's FTS5 document in O(1) lookup time via `meeting_fts_map`.
+    async fn refresh_meeting_fts(conn: &mut SqliteConnection, meeting_id: &str) -> AppResult<()> {
+        let existing_rowid: Option<(i64,)> =
+            sqlx::query_as("SELECT fts_rowid FROM meeting_fts_map WHERE meeting_id = ?1")
+                .bind(meeting_id)
+                .fetch_optional(&mut *conn)
+                .await?;
+        if let Some((rowid,)) = existing_rowid {
+            sqlx::query("DELETE FROM meetings_search_fts WHERE rowid = ?1")
+                .bind(rowid)
+                .execute(&mut *conn)
+                .await?;
+            sqlx::query("DELETE FROM meeting_fts_map WHERE meeting_id = ?1")
+                .bind(meeting_id)
+                .execute(&mut *conn)
+                .await?;
+        }
+
+        let inserted = sqlx::query(
+            r#"
+            INSERT INTO meetings_search_fts (
+                meeting_id, title, manual_notes, transcript_body, synthesis_body, slide_ocr_body, speaker_names
+            )
+            SELECT
+                meeting_id, title, manual_notes, transcript_body, synthesis_body, slide_ocr_body, speaker_names
+            FROM meeting_search_documents
+            WHERE meeting_id = ?1
+            "#,
+        )
+        .bind(meeting_id)
+        .execute(&mut *conn)
+        .await?;
+
+        if inserted.rows_affected() > 0 {
+            let new_rowid = inserted.last_insert_rowid();
+            sqlx::query(
+                "INSERT OR REPLACE INTO meeting_fts_map (meeting_id, fts_rowid) VALUES (?1, ?2)",
+            )
+            .bind(meeting_id)
+            .bind(new_rowid)
+            .execute(&mut *conn)
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Inspect any meeting left in `'recording'` or `'processing'` after an app
+    /// quit, crash, or power loss: salvage unfinalized WAV headers on disk,
+    /// restore missing audio paths if `audio.wav` exists, compute sample-accurate
+    /// duration, and transition the meeting to `'completed'`.
+    pub async fn recover_interrupted_meetings(&self, paths: &BrandPaths) -> AppResult<usize> {
+        let interrupted: Vec<Meeting> =
+            sqlx::query_as::<_, Meeting>("SELECT * FROM meetings WHERE status IN (?1, ?2)")
+                .bind(STATUS_RECORDING)
+                .bind(STATUS_PROCESSING)
+                .fetch_all(&self.pool)
+                .await?;
+
+        if interrupted.is_empty() {
+            return Ok(0);
+        }
+
+        let mut recovered = 0usize;
+        for meeting in interrupted {
+            let media_dir = paths.meeting_media_dir(&meeting.id);
+            let candidate_mic = meeting
+                .audio_file_path
+                .clone()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| media_dir.join("audio.wav"));
+            let candidate_sys = meeting
+                .system_audio_file_path
+                .clone()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| media_dir.join("audio-system.wav"));
+
+            let mut max_duration_ms = meeting.duration_ms.max(0);
+            let mic_path_opt = if candidate_mic.is_file() {
+                if let Ok(meta) = memo_audio_capture::salvage_wav_file(&candidate_mic) {
+                    max_duration_ms = max_duration_ms.max(meta.duration_ms);
+                    if meta.frames > 0 {
+                        Some(candidate_mic.to_string_lossy().into_owned())
+                    } else {
+                        let _ = std::fs::remove_file(&candidate_mic);
+                        None
+                    }
+                } else {
+                    Some(candidate_mic.to_string_lossy().into_owned())
+                }
+            } else {
+                None
+            };
+
+            let sys_path_opt = if candidate_sys.is_file() {
+                if let Ok(meta) = memo_audio_capture::salvage_wav_file(&candidate_sys) {
+                    max_duration_ms = max_duration_ms.max(
+                        meeting
+                            .system_audio_started_at_ms
+                            .saturating_add(meta.duration_ms),
+                    );
+                    if meta.frames > 0 {
+                        Some(candidate_sys.to_string_lossy().into_owned())
+                    } else {
+                        let _ = std::fs::remove_file(&candidate_sys);
+                        None
+                    }
+                } else {
+                    Some(candidate_sys.to_string_lossy().into_owned())
+                }
+            } else {
+                None
+            };
+
+            self.set_audio_file_paths(
+                &meeting.id,
+                mic_path_opt.as_deref(),
+                sys_path_opt.as_deref(),
+                if sys_path_opt.is_some() {
+                    meeting.system_audio_started_at_ms
+                } else {
+                    0
+                },
+            )
+            .await?;
+            self.finish_meeting(&meeting.id, max_duration_ms).await?;
+            recovered += 1;
+        }
+
+        Ok(recovered)
     }
 
     pub async fn create_meeting(&self, input: CreateMeetingInput) -> AppResult<Meeting> {
@@ -265,30 +434,89 @@ impl Database {
         let asr_model_id = input.asr_model_id.unwrap_or_else(|| "whisper-small".into());
         let slm_model_id = input
             .slm_model_id
-            .unwrap_or_else(|| "gemma-4-e2b-it".into());
+            .unwrap_or_else(|| "qwen2.5-3b-instruct".into());
 
-        sqlx::query(
-            r#"
-            INSERT INTO meetings (
-                id, title, status, created_at, updated_at, duration_ms, screenshot_interval_sec,
-                asr_model_id, slm_model_id, manual_notes_raw_md, folder_id, is_starred,
-                diarization_enabled
-            ) VALUES (?1, ?2, ?3, ?4, ?4, 0, ?5, ?6, ?7, '', ?8, 0, ?9)
-            "#,
-        )
-        .bind(&id)
-        .bind(&title)
-        .bind(STATUS_RECORDING)
-        .bind(now)
-        .bind(interval)
-        .bind(&asr_model_id)
-        .bind(&slm_model_id)
-        .bind(&input.folder_id)
-        .bind(input.diarization.unwrap_or(true))
-        .execute(&self.pool)
-        .await?;
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            sqlx::query(
+                r#"
+                INSERT INTO meetings (
+                    id, title, status, created_at, updated_at, duration_ms, screenshot_interval_sec,
+                    asr_model_id, slm_model_id, manual_notes_raw_md, folder_id, is_starred,
+                    diarization_enabled
+                ) VALUES (?1, ?2, ?3, ?4, ?4, 0, ?5, ?6, ?7, '', ?8, 0, ?9)
+                "#,
+            )
+            .bind(&id)
+            .bind(&title)
+            .bind(STATUS_RECORDING)
+            .bind(now)
+            .bind(interval)
+            .bind(&asr_model_id)
+            .bind(&slm_model_id)
+            .bind(&input.folder_id)
+            .bind(input.diarization.unwrap_or(true))
+            .execute(&mut *tx)
+            .await?;
+            Self::refresh_meeting_fts(&mut tx, &id).await?;
+            tx.commit().await?;
+        }
 
         self.get_meeting(&id).await
+    }
+
+    pub async fn update_meeting(&self, id: &str, patch: UpdateMeetingPatch) -> AppResult<Meeting> {
+        let current = self.get_meeting(id).await?;
+        let next_title = match patch.title {
+            Some(title) => {
+                let trimmed = title.trim();
+                if trimmed.is_empty() {
+                    return Err(AppError::Invalid("meeting title cannot be empty".into()));
+                }
+                trimmed.to_string()
+            }
+            None => current.title,
+        };
+        let next_folder = if patch.clear_folder {
+            None
+        } else {
+            patch.folder_id.or(current.folder_id)
+        };
+        let next_diarization = patch
+            .diarization_enabled
+            .unwrap_or(current.diarization_enabled);
+        let next_asr = patch.asr_model_id.unwrap_or(current.asr_model_id);
+        let next_slm = patch.slm_model_id.unwrap_or(current.slm_model_id);
+
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            sqlx::query(
+                r#"
+                UPDATE meetings SET
+                    title = ?1,
+                    folder_id = ?2,
+                    diarization_enabled = ?3,
+                    asr_model_id = ?4,
+                    slm_model_id = ?5,
+                    updated_at = ?6
+                WHERE id = ?7
+                "#,
+            )
+            .bind(&next_title)
+            .bind(&next_folder)
+            .bind(next_diarization)
+            .bind(&next_asr)
+            .bind(&next_slm)
+            .bind(Utc::now().timestamp_millis())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            Self::refresh_meeting_fts(&mut tx, id).await?;
+            tx.commit().await?;
+        }
+        self.get_meeting(id).await
     }
 
     pub async fn get_meeting(&self, id: &str) -> AppResult<Meeting> {
@@ -313,6 +541,7 @@ impl Database {
                 "unknown meeting status: {status}"
             )));
         }
+        let _guard = self.write_lock.lock().await;
         let updated = Utc::now().timestamp_millis();
         let result = sqlx::query("UPDATE meetings SET status = ?1, updated_at = ?2 WHERE id = ?3")
             .bind(status)
@@ -327,29 +556,37 @@ impl Database {
     }
 
     pub async fn finish_meeting(&self, id: &str, duration_ms: i64) -> AppResult<Meeting> {
-        let updated = Utc::now().timestamp_millis();
-        let result = sqlx::query(
-            "UPDATE meetings SET status = ?1, duration_ms = ?2, updated_at = ?3 WHERE id = ?4",
-        )
-        .bind(STATUS_COMPLETED)
-        .bind(duration_ms.max(0))
-        .bind(updated)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("meeting {id}")));
+        {
+            let _guard = self.write_lock.lock().await;
+            let updated = Utc::now().timestamp_millis();
+            let result = sqlx::query(
+                "UPDATE meetings SET status = ?1, duration_ms = ?2, updated_at = ?3 WHERE id = ?4",
+            )
+            .bind(STATUS_COMPLETED)
+            .bind(duration_ms.max(0))
+            .bind(updated)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+            if result.rows_affected() == 0 {
+                return Err(AppError::not_found(format!("meeting {id}")));
+            }
         }
         self.get_meeting(id).await
     }
 
     pub async fn set_meeting_starred(&self, id: &str, starred: bool) -> AppResult<()> {
-        sqlx::query("UPDATE meetings SET is_starred = ?1, updated_at = ?2 WHERE id = ?3")
-            .bind(starred)
-            .bind(Utc::now().timestamp_millis())
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let _guard = self.write_lock.lock().await;
+        let result =
+            sqlx::query("UPDATE meetings SET is_starred = ?1, updated_at = ?2 WHERE id = ?3")
+                .bind(starred)
+                .bind(Utc::now().timestamp_millis())
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("meeting {id}")));
+        }
         Ok(())
     }
 
@@ -358,10 +595,6 @@ impl Database {
     }
 
     /// Persist the two independent capture archives in one statement.
-    ///
-    /// `system` is `None` both when loopback was not requested and when it was
-    /// requested but produced nothing, so the vault never points at a file that
-    /// is not there.
     pub async fn set_audio_file_paths(
         &self,
         id: &str,
@@ -369,6 +602,7 @@ impl Database {
         system: Option<&str>,
         system_started_at_ms: i64,
     ) -> AppResult<()> {
+        let _guard = self.write_lock.lock().await;
         sqlx::query(
             "UPDATE meetings SET audio_file_path = ?1, system_audio_file_path = ?2, \
              system_audio_started_at_ms = ?3, updated_at = ?4 WHERE id = ?5",
@@ -389,7 +623,8 @@ impl Database {
                 "screenshotIntervalSec must be 0 (manual) or between 5 and 3600".into(),
             ));
         }
-        sqlx::query(
+        let _guard = self.write_lock.lock().await;
+        let result = sqlx::query(
             "UPDATE meetings SET screenshot_interval_sec = ?1, updated_at = ?2 WHERE id = ?3",
         )
         .bind(interval_sec)
@@ -397,6 +632,9 @@ impl Database {
         .bind(id)
         .execute(&self.pool)
         .await?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("meeting {id}")));
+        }
         Ok(())
     }
 
@@ -428,36 +666,42 @@ impl Database {
             }
         }
 
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM note_blocks WHERE meeting_id = ?1")
-            .bind(meeting_id)
-            .execute(&mut *tx)
-            .await?;
-        for block in blocks {
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            sqlx::query("DELETE FROM note_blocks WHERE meeting_id = ?1")
+                .bind(meeting_id)
+                .execute(&mut *tx)
+                .await?;
+            for block in blocks {
+                sqlx::query(
+                    r#"
+                    INSERT INTO note_blocks (
+                        id, meeting_id, line_index, block_type, content_md, recording_offset_ms, linked_screenshot_id
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                    "#,
+                )
+                .bind(Uuid::now_v7().to_string())
+                .bind(meeting_id)
+                .bind(block.line_index)
+                .bind(&block.block_type)
+                .bind(&block.content_md)
+                .bind(block.recording_offset_ms)
+                .bind(&block.linked_screenshot_id)
+                .execute(&mut *tx)
+                .await?;
+            }
             sqlx::query(
-                r#"
-                INSERT INTO note_blocks (
-                    id, meeting_id, line_index, block_type, content_md, recording_offset_ms, linked_screenshot_id
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                "#,
+                "UPDATE meetings SET manual_notes_raw_md = ?1, updated_at = ?2 WHERE id = ?3",
             )
-            .bind(Uuid::now_v7().to_string())
-            .bind(meeting_id)
-            .bind(block.line_index)
-            .bind(&block.block_type)
-            .bind(&block.content_md)
-            .bind(block.recording_offset_ms)
-            .bind(&block.linked_screenshot_id)
-            .execute(&mut *tx)
-            .await?;
-        }
-        sqlx::query("UPDATE meetings SET manual_notes_raw_md = ?1, updated_at = ?2 WHERE id = ?3")
             .bind(raw_md)
             .bind(Utc::now().timestamp_millis())
             .bind(meeting_id)
             .execute(&mut *tx)
             .await?;
-        tx.commit().await?;
+            Self::refresh_meeting_fts(&mut tx, meeting_id).await?;
+            tx.commit().await?;
+        }
         self.list_note_blocks(meeting_id).await
     }
 
@@ -482,47 +726,48 @@ impl Database {
             ));
         }
         let id = Uuid::now_v7().to_string();
-        // `You` is the only stable identity the channel layout can prove.
-        // Generic labels stay per-meeting so two different "Speaker 1"s do not
-        // share a global voiceprint row.
         let speaker_id = if segment.speaker_label.eq_ignore_ascii_case("You") {
             Some(self.upsert_speaker("You", true).await?.id)
         } else {
             None
         };
-        sqlx::query(
-            r#"
-            INSERT INTO transcript_segments (
-                id, meeting_id, seq_no, start_ms, end_ms, speaker_id, speaker_label,
-                audio_channel, text, is_confirmed
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-            "#,
-        )
-        .bind(&id)
-        .bind(meeting_id)
-        .bind(segment.seq_no)
-        .bind(segment.start_ms)
-        .bind(segment.end_ms)
-        .bind(&speaker_id)
-        .bind(&segment.speaker_label)
-        .bind(&segment.audio_channel)
-        .bind(&segment.text)
-        .bind(segment.is_confirmed)
-        .execute(&self.pool)
-        .await?;
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            sqlx::query(
+                r#"
+                INSERT INTO transcript_segments (
+                    id, meeting_id, seq_no, start_ms, end_ms, speaker_id, speaker_label,
+                    raw_speaker_cluster, audio_channel, text, is_confirmed
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?9, ?10)
+                "#,
+            )
+            .bind(&id)
+            .bind(meeting_id)
+            .bind(segment.seq_no)
+            .bind(segment.start_ms)
+            .bind(segment.end_ms)
+            .bind(&speaker_id)
+            .bind(&segment.speaker_label)
+            .bind(&segment.audio_channel)
+            .bind(&segment.text)
+            .bind(segment.is_confirmed)
+            .execute(&mut *tx)
+            .await?;
+            Self::refresh_meeting_fts(&mut tx, meeting_id).await?;
+            tx.commit().await?;
+        }
         Ok(sqlx::query_as::<_, TranscriptSegment>(
-            "SELECT * FROM transcript_segments WHERE id = ?1",
+            "SELECT id, meeting_id, seq_no, start_ms, end_ms, speaker_id, speaker_label, audio_channel, text, is_confirmed \
+             FROM transcript_segments WHERE id = ?1",
         )
         .bind(&id)
         .fetch_one(&self.pool)
         .await?)
     }
 
-    /// Atomically replace every transcript segment for a meeting.
-    ///
-    /// Recognition can fail mid-meeting. Deleting first and inserting as we go
-    /// would destroy the previous good transcript and leave a half-written one;
-    /// a transaction keeps the old rows until the whole run succeeds.
+    /// Atomically replace every transcript segment for a meeting in a single
+    /// transaction with a single O(1) FTS5 document refresh at commit time.
     pub async fn replace_transcript(
         &self,
         meeting_id: &str,
@@ -540,12 +785,17 @@ impl Database {
         let needs_you = segments
             .iter()
             .any(|segment| segment.speaker_label.eq_ignore_ascii_case("You"));
-        let you_id = if needs_you {
-            Some(self.upsert_speaker("You", true).await?.id)
-        } else {
-            None
-        };
+        if needs_you {
+            let _ = self.upsert_speaker("You", true).await?;
+        }
+        let known_speakers: std::collections::HashMap<String, String> = self
+            .list_speakers()
+            .await?
+            .into_iter()
+            .map(|sp| (sp.display_name.to_lowercase(), sp.id))
+            .collect();
 
+        let _guard = self.write_lock.lock().await;
         let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM transcript_segments WHERE meeting_id = ?1")
             .bind(meeting_id)
@@ -555,17 +805,15 @@ impl Database {
         let mut stored = Vec::with_capacity(segments.len());
         for segment in segments {
             let id = Uuid::now_v7().to_string();
-            let speaker_id = if segment.speaker_label.eq_ignore_ascii_case("You") {
-                you_id.clone()
-            } else {
-                None
-            };
+            let speaker_id = known_speakers
+                .get(&segment.speaker_label.to_lowercase())
+                .cloned();
             sqlx::query(
                 r#"
                 INSERT INTO transcript_segments (
                     id, meeting_id, seq_no, start_ms, end_ms, speaker_id, speaker_label,
-                    audio_channel, text, is_confirmed
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                    raw_speaker_cluster, audio_channel, text, is_confirmed
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?9, ?10)
                 "#,
             )
             .bind(&id)
@@ -593,23 +841,88 @@ impl Database {
                 is_confirmed: segment.is_confirmed,
             });
         }
+        Self::refresh_meeting_fts(&mut tx, meeting_id).await?;
         tx.commit().await?;
         Ok(stored)
     }
 
-    /// Remove every segment for a meeting. Used before a re-transcription so a
-    /// failed run cannot leave a mix of old and new text.
+    pub async fn update_transcript_segment(
+        &self,
+        segment_id: &str,
+        text: Option<&str>,
+        speaker_label: Option<&str>,
+    ) -> AppResult<TranscriptSegment> {
+        let existing: Option<TranscriptSegment> = sqlx::query_as(
+            "SELECT id, meeting_id, seq_no, start_ms, end_ms, speaker_id, speaker_label, audio_channel, text, is_confirmed \
+             FROM transcript_segments WHERE id = ?1",
+        )
+        .bind(segment_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let existing =
+            existing.ok_or_else(|| AppError::not_found(format!("segment {segment_id}")))?;
+
+        let next_text = match text {
+            Some(t) => {
+                let trimmed = t.trim();
+                if trimmed.is_empty() {
+                    return Err(AppError::Invalid("transcript text cannot be empty".into()));
+                }
+                trimmed.to_string()
+            }
+            None => existing.text,
+        };
+        let next_speaker = match speaker_label {
+            Some(label) => {
+                let trimmed = label.trim();
+                if trimmed.is_empty() {
+                    return Err(AppError::Invalid("speaker label cannot be empty".into()));
+                }
+                trimmed.to_string()
+            }
+            None => existing.speaker_label,
+        };
+
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            sqlx::query(
+                "UPDATE transcript_segments SET text = ?1, speaker_label = ?2, is_confirmed = 1 WHERE id = ?3",
+            )
+            .bind(&next_text)
+            .bind(&next_speaker)
+            .bind(segment_id)
+            .execute(&mut *tx)
+            .await?;
+            Self::refresh_meeting_fts(&mut tx, &existing.meeting_id).await?;
+            tx.commit().await?;
+        }
+
+        Ok(sqlx::query_as::<_, TranscriptSegment>(
+            "SELECT id, meeting_id, seq_no, start_ms, end_ms, speaker_id, speaker_label, audio_channel, text, is_confirmed \
+             FROM transcript_segments WHERE id = ?1",
+        )
+        .bind(segment_id)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     pub async fn clear_transcript(&self, meeting_id: &str) -> AppResult<()> {
+        let _guard = self.write_lock.lock().await;
+        let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM transcript_segments WHERE meeting_id = ?1")
             .bind(meeting_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        Self::refresh_meeting_fts(&mut tx, meeting_id).await?;
+        tx.commit().await?;
         Ok(())
     }
 
     pub async fn list_transcript(&self, meeting_id: &str) -> AppResult<Vec<TranscriptSegment>> {
         Ok(sqlx::query_as::<_, TranscriptSegment>(
-            "SELECT * FROM transcript_segments WHERE meeting_id = ?1 ORDER BY seq_no ASC",
+            "SELECT id, meeting_id, seq_no, start_ms, end_ms, speaker_id, speaker_label, audio_channel, text, is_confirmed \
+             FROM transcript_segments WHERE meeting_id = ?1 ORDER BY seq_no ASC",
         )
         .bind(meeting_id)
         .fetch_all(&self.pool)
@@ -633,6 +946,7 @@ impl Database {
         if name.is_empty() {
             return Err(AppError::Invalid("speaker display name is empty".into()));
         }
+        let _guard = self.write_lock.lock().await;
         if let Some(mut existing) = sqlx::query_as::<_, Speaker>(
             "SELECT * FROM speakers WHERE display_name = ?1 COLLATE NOCASE",
         )
@@ -683,19 +997,84 @@ impl Database {
         }
         self.get_meeting(meeting_id).await?;
         let speaker = self.upsert_speaker(new_name, false).await?;
-        let mut tx = self.pool.begin().await?;
-        sqlx::query(
-            "UPDATE transcript_segments SET speaker_id = ?1, speaker_label = ?2
-             WHERE meeting_id = ?3 AND (speaker_label = ?4 OR speaker_id = ?1)",
-        )
-        .bind(&speaker.id)
-        .bind(new_name)
-        .bind(meeting_id)
-        .bind(old_label)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            // Match by raw_speaker_cluster when `old_label` names an original
+            // diarization cluster (`Speaker 1`), otherwise match current `speaker_label`
+            // without cross-merging distinct raw clusters that previously shared a name.
+            sqlx::query(
+                r#"
+                UPDATE transcript_segments
+                SET speaker_id = ?1, speaker_label = ?2
+                WHERE meeting_id = ?3
+                  AND (raw_speaker_cluster = ?4 OR speaker_label = ?4)
+                "#,
+            )
+            .bind(&speaker.id)
+            .bind(new_name)
+            .bind(meeting_id)
+            .bind(old_label)
+            .execute(&mut *tx)
+            .await?;
+            Self::refresh_meeting_fts(&mut tx, meeting_id).await?;
+            tx.commit().await?;
+        }
         Ok(speaker)
+    }
+
+    /// Persist or blend an acoustic voiceprint centroid (`memo_diarize` L2 float32 bytes)
+    /// onto an enrolled speaker row.
+    pub async fn set_speaker_voiceprint(
+        &self,
+        speaker_id: &str,
+        new_centroid: &[f32],
+    ) -> AppResult<Speaker> {
+        let existing: Option<Speaker> = sqlx::query_as("SELECT * FROM speakers WHERE id = ?1")
+            .bind(speaker_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        let existing =
+            existing.ok_or_else(|| AppError::not_found(format!("speaker {speaker_id}")))?;
+
+        let blended = match existing
+            .voiceprint_centroid
+            .as_deref()
+            .and_then(memo_diarize::decode_centroid_bytes)
+        {
+            Some(prev) if prev.len() == new_centroid.len() => {
+                let mut sum: Vec<f32> = prev
+                    .iter()
+                    .zip(new_centroid.iter())
+                    .map(|(a, b)| a * 0.5 + b * 0.5)
+                    .collect();
+                let norm = sum.iter().map(|v| v * v).sum::<f32>().sqrt();
+                if norm > 1e-8 {
+                    for v in &mut sum {
+                        *v /= norm;
+                    }
+                }
+                sum
+            }
+            _ => new_centroid.to_vec(),
+        };
+        let encoded = memo_diarize::encode_centroid_bytes(&blended);
+
+        {
+            let _guard = self.write_lock.lock().await;
+            sqlx::query("UPDATE speakers SET voiceprint_centroid = ?1 WHERE id = ?2")
+                .bind(&encoded)
+                .bind(speaker_id)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        Ok(
+            sqlx::query_as::<_, Speaker>("SELECT * FROM speakers WHERE id = ?1")
+                .bind(speaker_id)
+                .fetch_one(&self.pool)
+                .await?,
+        )
     }
 
     pub async fn insert_screenshot(
@@ -710,26 +1089,34 @@ impl Database {
             ));
         }
         let id = Uuid::now_v7().to_string();
-        sqlx::query(
-            r#"
-            INSERT INTO screenshots (
-                id, meeting_id, start_ms, end_ms, file_path, width, height, dhash,
-                capture_trigger, ocr_extracted_text
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-            "#,
-        )
-        .bind(&id)
-        .bind(meeting_id)
-        .bind(shot.start_ms)
-        .bind(shot.end_ms)
-        .bind(&shot.file_path)
-        .bind(shot.width)
-        .bind(shot.height)
-        .bind(&shot.dhash)
-        .bind(&shot.capture_trigger)
-        .bind(&shot.ocr_extracted_text)
-        .execute(&self.pool)
-        .await?;
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            sqlx::query(
+                r#"
+                INSERT INTO screenshots (
+                    id, meeting_id, start_ms, end_ms, file_path, width, height, dhash,
+                    capture_trigger, ocr_extracted_text
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                "#,
+            )
+            .bind(&id)
+            .bind(meeting_id)
+            .bind(shot.start_ms)
+            .bind(shot.end_ms)
+            .bind(&shot.file_path)
+            .bind(shot.width)
+            .bind(shot.height)
+            .bind(&shot.dhash)
+            .bind(&shot.capture_trigger)
+            .bind(&shot.ocr_extracted_text)
+            .execute(&mut *tx)
+            .await?;
+            if shot.ocr_extracted_text.is_some() {
+                Self::refresh_meeting_fts(&mut tx, meeting_id).await?;
+            }
+            tx.commit().await?;
+        }
         self.get_screenshot(&id).await
     }
 
@@ -741,6 +1128,15 @@ impl Database {
             .ok_or_else(|| AppError::not_found(format!("screenshot {id}")))
     }
 
+    pub async fn latest_screenshot(&self, meeting_id: &str) -> AppResult<Option<Screenshot>> {
+        Ok(sqlx::query_as::<_, Screenshot>(
+            "SELECT * FROM screenshots WHERE meeting_id = ?1 ORDER BY start_ms DESC, rowid DESC LIMIT 1",
+        )
+        .bind(meeting_id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     pub async fn list_screenshots(&self, meeting_id: &str) -> AppResult<Vec<Screenshot>> {
         Ok(sqlx::query_as::<_, Screenshot>(
             "SELECT * FROM screenshots WHERE meeting_id = ?1 ORDER BY start_ms ASC",
@@ -750,7 +1146,23 @@ impl Database {
         .await?)
     }
 
+    pub async fn delete_screenshot(&self, id: &str) -> AppResult<Screenshot> {
+        let shot = self.get_screenshot(id).await?;
+        let _guard = self.write_lock.lock().await;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM screenshots WHERE id = ?1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        if shot.ocr_extracted_text.is_some() {
+            Self::refresh_meeting_fts(&mut tx, &shot.meeting_id).await?;
+        }
+        tx.commit().await?;
+        Ok(shot)
+    }
+
     pub async fn extend_screenshot(&self, id: &str, end_ms: i64) -> AppResult<()> {
+        let _guard = self.write_lock.lock().await;
         sqlx::query("UPDATE screenshots SET end_ms = MAX(end_ms, ?1) WHERE id = ?2")
             .bind(end_ms)
             .bind(id)
@@ -760,52 +1172,82 @@ impl Database {
     }
 
     pub async fn update_screenshot_ocr(&self, id: &str, text: &str) -> AppResult<()> {
-        let result = sqlx::query("UPDATE screenshots SET ocr_extracted_text = ?1 WHERE id = ?2")
+        let shot = self.get_screenshot(id).await?;
+        let _guard = self.write_lock.lock().await;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("UPDATE screenshots SET ocr_extracted_text = ?1 WHERE id = ?2")
             .bind(text)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("screenshot {id}")));
-        }
+        Self::refresh_meeting_fts(&mut tx, &shot.meeting_id).await?;
+        tx.commit().await?;
         Ok(())
     }
 
+    /// Atomically replace AI-generated synthesis items while preserving user-edited
+    /// rows and carrying forward `is_completed` state on matching action items.
     pub async fn replace_synthesis_items(
         &self,
         meeting_id: &str,
         items: Vec<SynthesisItemDraft>,
     ) -> AppResult<Vec<SynthesisItem>> {
         self.get_meeting(meeting_id).await?;
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM synthesis_items WHERE meeting_id = ?1")
-            .bind(meeting_id)
-            .execute(&mut *tx)
-            .await?;
-        for item in items {
-            sqlx::query(
-                r#"
-                INSERT INTO synthesis_items (
-                    id, meeting_id, item_type, sort_order, content, rationale, owner, deadline,
-                    is_completed, is_user_edited, evidence_refs_json
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-                "#,
-            )
-            .bind(Uuid::now_v7().to_string())
-            .bind(meeting_id)
-            .bind(&item.item_type)
-            .bind(item.sort_order)
-            .bind(&item.content)
-            .bind(&item.rationale)
-            .bind(&item.owner)
-            .bind(&item.deadline)
-            .bind(item.is_completed)
-            .bind(item.is_user_edited)
-            .bind(serde_json::to_string(&item.evidence_refs)?)
-            .execute(&mut *tx)
-            .await?;
+        let existing = self.list_synthesis_items(meeting_id).await?;
+        let completed_contents: std::collections::HashSet<String> = existing
+            .iter()
+            .filter(|row| row.is_completed)
+            .map(|row| normalize_item_key(&row.item_type, &row.content))
+            .collect();
+        let preserved_edits: Vec<SynthesisItem> = existing
+            .into_iter()
+            .filter(|row| row.is_user_edited)
+            .collect();
+
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            sqlx::query("DELETE FROM synthesis_items WHERE meeting_id = ?1 AND is_user_edited = 0")
+                .bind(meeting_id)
+                .execute(&mut *tx)
+                .await?;
+
+            let preserved_keys: std::collections::HashSet<String> = preserved_edits
+                .iter()
+                .map(|row| normalize_item_key(&row.item_type, &row.content))
+                .collect();
+
+            for item in items {
+                let key = normalize_item_key(&item.item_type, &item.content);
+                if preserved_keys.contains(&key) {
+                    continue;
+                }
+                let is_completed = item.is_completed || completed_contents.contains(&key);
+                sqlx::query(
+                    r#"
+                    INSERT INTO synthesis_items (
+                        id, meeting_id, item_type, sort_order, content, rationale, owner, deadline,
+                        is_completed, is_user_edited, evidence_refs_json
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                    "#,
+                )
+                .bind(Uuid::now_v7().to_string())
+                .bind(meeting_id)
+                .bind(&item.item_type)
+                .bind(item.sort_order)
+                .bind(&item.content)
+                .bind(&item.rationale)
+                .bind(&item.owner)
+                .bind(&item.deadline)
+                .bind(is_completed)
+                .bind(item.is_user_edited)
+                .bind(serde_json::to_string(&item.evidence_refs)?)
+                .execute(&mut *tx)
+                .await?;
+            }
+            Self::refresh_meeting_fts(&mut tx, meeting_id).await?;
+            tx.commit().await?;
         }
-        tx.commit().await?;
         self.list_synthesis_items(meeting_id).await
     }
 
@@ -818,33 +1260,98 @@ impl Database {
         .await?)
     }
 
+    pub async fn insert_user_synthesis_item(
+        &self,
+        meeting_id: &str,
+        item_type: &str,
+        content: &str,
+        owner: Option<&str>,
+        deadline: Option<&str>,
+    ) -> AppResult<SynthesisItem> {
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            return Err(AppError::Invalid("content must not be empty".into()));
+        }
+        self.get_meeting(meeting_id).await?;
+        let id = Uuid::now_v7().to_string();
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            let max_order: (i64,) = sqlx::query_as(
+                "SELECT COALESCE(MAX(sort_order), -1) FROM synthesis_items WHERE meeting_id = ?1 AND item_type = ?2",
+            )
+            .bind(meeting_id)
+            .bind(item_type)
+            .fetch_one(&mut *tx)
+            .await?;
+            sqlx::query(
+                r#"
+                INSERT INTO synthesis_items (
+                    id, meeting_id, item_type, sort_order, content, rationale, owner, deadline,
+                    is_completed, is_user_edited, evidence_refs_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, 0, 1, '[]')
+                "#,
+            )
+            .bind(&id)
+            .bind(meeting_id)
+            .bind(item_type)
+            .bind(max_order.0 + 1)
+            .bind(trimmed)
+            .bind(owner)
+            .bind(deadline)
+            .execute(&mut *tx)
+            .await?;
+            Self::refresh_meeting_fts(&mut tx, meeting_id).await?;
+            tx.commit().await?;
+        }
+        Ok(
+            sqlx::query_as("SELECT * FROM synthesis_items WHERE id = ?1")
+                .bind(&id)
+                .fetch_one(&self.pool)
+                .await?,
+        )
+    }
+
     pub async fn update_synthesis_item(
         &self,
         item_id: &str,
         patch: SynthesisItemPatch,
     ) -> AppResult<SynthesisItem> {
-        let result = sqlx::query(
-            r#"
-            UPDATE synthesis_items SET
-                content = COALESCE(?1, content),
-                rationale = COALESCE(?2, rationale),
-                owner = COALESCE(?3, owner),
-                deadline = COALESCE(?4, deadline),
-                is_completed = COALESCE(?5, is_completed),
-                is_user_edited = 1
-            WHERE id = ?6
-            "#,
-        )
-        .bind(patch.content)
-        .bind(patch.rationale)
-        .bind(patch.owner)
-        .bind(patch.deadline)
-        .bind(patch.is_completed)
-        .bind(item_id)
-        .execute(&self.pool)
-        .await?;
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("synthesis item {item_id}")));
+        let current: Option<SynthesisItem> =
+            sqlx::query_as("SELECT * FROM synthesis_items WHERE id = ?1")
+                .bind(item_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        let current =
+            current.ok_or_else(|| AppError::not_found(format!("synthesis item {item_id}")))?;
+
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            sqlx::query(
+                r#"
+                UPDATE synthesis_items SET
+                    content = COALESCE(?1, content),
+                    rationale = COALESCE(?2, rationale),
+                    owner = COALESCE(?3, owner),
+                    deadline = COALESCE(?4, deadline),
+                    is_completed = COALESCE(?5, is_completed),
+                    is_user_edited = 1
+                WHERE id = ?6
+                "#,
+            )
+            .bind(&patch.content)
+            .bind(&patch.rationale)
+            .bind(&patch.owner)
+            .bind(&patch.deadline)
+            .bind(patch.is_completed)
+            .bind(item_id)
+            .execute(&mut *tx)
+            .await?;
+            if patch.content.is_some() {
+                Self::refresh_meeting_fts(&mut tx, &current.meeting_id).await?;
+            }
+            tx.commit().await?;
         }
         Ok(
             sqlx::query_as::<_, SynthesisItem>("SELECT * FROM synthesis_items WHERE id = ?1")
@@ -859,6 +1366,7 @@ impl Database {
         if name.is_empty() {
             return Err(AppError::Invalid("folder name is empty".into()));
         }
+        let _guard = self.write_lock.lock().await;
         let folder = Folder {
             id: Uuid::now_v7().to_string(),
             name: name.to_string(),
@@ -877,12 +1385,131 @@ impl Database {
         Ok(folder)
     }
 
+    pub async fn rename_folder(&self, folder_id: &str, name: &str) -> AppResult<Folder> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(AppError::Invalid("folder name is empty".into()));
+        }
+        let _guard = self.write_lock.lock().await;
+        let result = sqlx::query("UPDATE folders SET name = ?1 WHERE id = ?2")
+            .bind(name)
+            .bind(folder_id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("folder {folder_id}")));
+        }
+        Ok(sqlx::query_as::<_, Folder>(
+            "SELECT id, name, parent_id, created_at FROM folders WHERE id = ?1",
+        )
+        .bind(folder_id)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    pub async fn delete_folder(&self, folder_id: &str) -> AppResult<()> {
+        let _guard = self.write_lock.lock().await;
+        let result = sqlx::query("DELETE FROM folders WHERE id = ?1")
+            .bind(folder_id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("folder {folder_id}")));
+        }
+        Ok(())
+    }
+
     pub async fn list_folders(&self) -> AppResult<Vec<Folder>> {
         Ok(sqlx::query_as::<_, Folder>(
             "SELECT id, name, parent_id, created_at FROM folders ORDER BY name COLLATE NOCASE",
         )
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    pub async fn set_meeting_tags(
+        &self,
+        meeting_id: &str,
+        tags: Vec<String>,
+    ) -> AppResult<Vec<String>> {
+        self.get_meeting(meeting_id).await?;
+        let mut normalized = std::collections::BTreeSet::new();
+        for tag in tags {
+            let trimmed = tag.trim().to_lowercase();
+            if !trimmed.is_empty() {
+                normalized.insert(trimmed);
+            }
+        }
+        {
+            let _guard = self.write_lock.lock().await;
+            let mut tx = self.pool.begin().await?;
+            sqlx::query("DELETE FROM meeting_tags WHERE meeting_id = ?1")
+                .bind(meeting_id)
+                .execute(&mut *tx)
+                .await?;
+            for tag in &normalized {
+                sqlx::query("INSERT INTO meeting_tags (id, meeting_id, tag) VALUES (?1, ?2, ?3)")
+                    .bind(Uuid::now_v7().to_string())
+                    .bind(meeting_id)
+                    .bind(tag)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            Self::refresh_meeting_fts(&mut tx, meeting_id).await?;
+            tx.commit().await?;
+        }
+        Ok(normalized.into_iter().collect())
+    }
+
+    pub async fn get_meeting_tags(&self, meeting_id: &str) -> AppResult<Vec<String>> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT tag FROM meeting_tags WHERE meeting_id = ?1 ORDER BY tag ASC")
+                .bind(meeting_id)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows.into_iter().map(|(tag,)| tag).collect())
+    }
+
+    pub async fn list_all_tags(&self) -> AppResult<Vec<String>> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT DISTINCT tag FROM meeting_tags ORDER BY tag ASC")
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows.into_iter().map(|(tag,)| tag).collect())
+    }
+
+    pub async fn vault_counts(&self) -> AppResult<VaultCounts> {
+        let (meetings,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM meetings")
+            .fetch_one(&self.pool)
+            .await?;
+        let (transcript_segments,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM transcript_segments")
+                .fetch_one(&self.pool)
+                .await?;
+        let (note_blocks,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM note_blocks")
+            .fetch_one(&self.pool)
+            .await?;
+        let (screenshots,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM screenshots")
+            .fetch_one(&self.pool)
+            .await?;
+        let (synthesis_items,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM synthesis_items")
+            .fetch_one(&self.pool)
+            .await?;
+        let (speakers,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM speakers")
+            .fetch_one(&self.pool)
+            .await?;
+        let (folders,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM folders")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(VaultCounts {
+            meetings,
+            transcript_segments,
+            note_blocks,
+            screenshots,
+            synthesis_items,
+            speakers,
+            folders,
+        })
     }
 
     pub async fn search(
@@ -894,15 +1521,18 @@ impl Database {
             return Ok(Vec::new());
         };
         let limit = filters.limit.unwrap_or(25).clamp(1, 100) as i64;
+        // Use non-HTML sentinel bytes `\x01` and `\x02` inside SQLite `snippet()`,
+        // HTML-escape raw user/transcript characters first, then emit `<mark>` tags
+        // so stored text containing `<img onerror=...>` can never execute XSS.
         let mut builder = QueryBuilder::<Sqlite>::new(
             r#"
             SELECT
                 f.meeting_id AS meeting_id,
-                f.title AS title,
-                snippet(meetings_search_fts, 2, '<mark>', '</mark>', '…', 24) AS notes_snippet,
-                snippet(meetings_search_fts, 3, '<mark>', '</mark>', '…', 24) AS transcript_snippet,
-                snippet(meetings_search_fts, 4, '<mark>', '</mark>', '…', 24) AS synthesis_snippet,
-                snippet(meetings_search_fts, 5, '<mark>', '</mark>', '…', 24) AS slide_snippet,
+                m.title AS title,
+                snippet(meetings_search_fts, 2, char(1), char(2), '…', 24) AS notes_snippet,
+                snippet(meetings_search_fts, 3, char(1), char(2), '…', 24) AS transcript_snippet,
+                snippet(meetings_search_fts, 4, char(1), char(2), '…', 24) AS synthesis_snippet,
+                snippet(meetings_search_fts, 5, char(1), char(2), '…', 24) AS slide_snippet,
                 bm25(meetings_search_fts, 0.0, 12.0, 8.0, 2.0, 5.0, 6.0, 3.0) AS rank
             FROM meetings_search_fts f
             JOIN meetings m ON m.id = f.meeting_id
@@ -911,7 +1541,7 @@ impl Database {
         );
         builder.push_bind(fts_query);
         if let Some(meeting_id) = filters.meeting_id {
-            builder.push(" AND f.meeting_id = ").push_bind(meeting_id);
+            builder.push(" AND m.id = ").push_bind(meeting_id);
         }
         if let Some(folder_id) = filters.folder_id {
             builder.push(" AND m.folder_id = ").push_bind(folder_id);
@@ -942,10 +1572,10 @@ impl Database {
                     row.synthesis_snippet,
                     row.slide_snippet,
                 ];
-                let snippet = candidates
+                let raw_snippet = candidates
                     .iter()
                     .flatten()
-                    .find(|candidate| candidate.contains("<mark>"))
+                    .find(|candidate| candidate.contains('\x01'))
                     .or_else(|| {
                         candidates
                             .iter()
@@ -957,7 +1587,7 @@ impl Database {
                 SearchHit {
                     meeting_id: row.meeting_id,
                     title: row.title,
-                    snippet,
+                    snippet: sanitize_fts_snippet(&raw_snippet),
                     rank: row.rank,
                 }
             })
@@ -965,16 +1595,27 @@ impl Database {
     }
 
     pub async fn rebuild_search_index(&self) -> AppResult<()> {
+        let _guard = self.write_lock.lock().await;
         let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM meeting_fts_map")
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM meetings_search_fts")
             .execute(&mut *tx)
             .await?;
         sqlx::query(
             r#"
-            INSERT INTO meetings_search_fts
+            INSERT INTO meetings_search_fts (
+                meeting_id, title, manual_notes, transcript_body, synthesis_body, slide_ocr_body, speaker_names
+            )
             SELECT meeting_id, title, manual_notes, transcript_body, synthesis_body, slide_ocr_body, speaker_names
             FROM meeting_search_documents
             "#,
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO meeting_fts_map (meeting_id, fts_rowid) SELECT meeting_id, rowid FROM meetings_search_fts",
         )
         .execute(&mut *tx)
         .await?;
@@ -983,6 +1624,7 @@ impl Database {
     }
 
     pub async fn delete_meeting(&self, meeting_id: &str) -> AppResult<()> {
+        let _guard = self.write_lock.lock().await;
         let result = sqlx::query("DELETE FROM meetings WHERE id = ?1")
             .bind(meeting_id)
             .execute(&self.pool)
@@ -992,6 +1634,35 @@ impl Database {
         }
         Ok(())
     }
+}
+
+fn normalize_item_key(item_type: &str, content: &str) -> String {
+    format!(
+        "{}::{}",
+        item_type.trim().to_ascii_lowercase(),
+        content
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_lowercase()
+    )
+}
+
+pub fn sanitize_fts_snippet(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len() + 16);
+    for ch in raw.chars() {
+        match ch {
+            '\x01' => out.push_str("<mark>"),
+            '\x02' => out.push_str("</mark>"),
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 pub fn build_fts_query(raw: &str) -> Option<String> {
@@ -1029,6 +1700,7 @@ fn speaker_color(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::brand::Brand;
     use crate::synthesis::types::SynthesisItemDraft;
 
     async fn db() -> Database {
@@ -1075,7 +1747,6 @@ mod tests {
             .await
             .unwrap();
 
-        // A rejected batch must not touch the existing transcript.
         let mut invalid = transcript_seg(2, "Invalid line.");
         invalid.audio_channel = "loopback".into();
         assert!(db
@@ -1104,6 +1775,120 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn large_transcript_replace_completes_without_quadratic_fts_blowup() {
+        let db = db().await;
+        let meeting = db
+            .create_meeting(CreateMeetingInput {
+                title: Some("Two-Hour Board Review".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let segments: Vec<NewTranscriptSegment> = (1..=1_500)
+            .map(|seq| {
+                transcript_seg(
+                    seq,
+                    &format!("Segment {seq} discussing Kubernetes ingress latency."),
+                )
+            })
+            .collect();
+
+        let started = std::time::Instant::now();
+        let stored = db.replace_transcript(&meeting.id, segments).await.unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(stored.len(), 1_500);
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "1500-segment replace took too long: {elapsed:?}"
+        );
+
+        let hits = db
+            .search("Kubernetes", SearchFilters::default())
+            .await
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.contains("<mark>Kubernetes</mark>"));
+    }
+
+    #[tokio::test]
+    async fn search_snippets_escape_html_and_prevent_xss() {
+        let db = db().await;
+        let meeting = db
+            .create_meeting(CreateMeetingInput {
+                title: Some("XSS Check".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        db.save_note_blocks(
+            &meeting.id,
+            "Payload <img src=x onerror=alert('pwn')> around PostgreSQL migration.",
+            vec![note(
+                1,
+                "Payload <img src=x onerror=alert('pwn')> around PostgreSQL migration.",
+            )],
+        )
+        .await
+        .unwrap();
+
+        let hits = db
+            .search("PostgreSQL", SearchFilters::default())
+            .await
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.contains("<mark>PostgreSQL</mark>"));
+        assert!(!hits[0].snippet.contains("<img"));
+        assert!(hits[0]
+            .snippet
+            .contains("&lt;img src=x onerror=alert(&#39;pwn&#39;)&gt;"));
+    }
+
+    #[tokio::test]
+    async fn crash_recovery_salvages_unfinalized_wav_and_finalizes_meeting() {
+        let temp = tempfile::tempdir().unwrap();
+        let brand = Brand::embedded().unwrap();
+        let paths = BrandPaths::from_roots(
+            brand.manifest(),
+            temp.path().join("data"),
+            temp.path().join("cache"),
+        );
+        paths.ensure().unwrap();
+        let db = Database::connect(&paths.db_path).await.unwrap();
+
+        let meeting = db
+            .create_meeting(CreateMeetingInput {
+                title: Some("Interrupted Call".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(meeting.status, STATUS_RECORDING);
+        assert!(meeting.audio_file_path.is_none());
+
+        // Write an unfinalized WAV (`data_len = 0`, skipping Drop via `mem::forget`).
+        let wav_path = paths.meeting_media_dir(&meeting.id).join("audio.wav");
+        std::fs::create_dir_all(wav_path.parent().unwrap()).unwrap();
+        {
+            let file = std::fs::File::create(&wav_path).unwrap();
+            let spec = memo_audio_capture::WavSpec::new(16_000, 1).unwrap();
+            let mut writer = memo_audio_capture::WavWriter::new(file, spec).unwrap();
+            writer.write_samples(&vec![0.2; 32_000]).unwrap();
+            std::mem::forget(writer);
+        }
+
+        let recovered = db.recover_interrupted_meetings(&paths).await.unwrap();
+        assert_eq!(recovered, 1);
+
+        let after = db.get_meeting(&meeting.id).await.unwrap();
+        assert_eq!(after.status, STATUS_COMPLETED);
+        assert_eq!(after.duration_ms, 2_000);
+        assert_eq!(
+            after.audio_file_path.as_deref(),
+            Some(wav_path.to_string_lossy().as_ref())
+        );
+    }
+
+    #[tokio::test]
     async fn migrations_create_core_tables_and_fts5() {
         let db = db().await;
         let tables: Vec<(String,)> = sqlx::query_as(
@@ -1115,6 +1900,7 @@ mod tests {
         let names: Vec<_> = tables.into_iter().map(|(name,)| name).collect();
         for expected in [
             "meetings",
+            "meeting_fts_map",
             "note_blocks",
             "speakers",
             "transcript_segments",
@@ -1164,8 +1950,6 @@ mod tests {
         );
         assert_eq!(stored.system_audio_started_at_ms, 420);
 
-        // A microphone-only retake must clear the stale system path, not leave
-        // the transcript pointing at an old loopback file.
         db.set_audio_file_paths(&meeting.id, Some("/vault/m/audio.wav"), None, 0)
             .await
             .unwrap();
@@ -1212,6 +1996,18 @@ mod tests {
             .unwrap();
         assert_eq!(replaced.len(), 1);
         assert_eq!(replaced[0].content_md, "DECISION: PostgreSQL for billing.");
+
+        let renamed = db
+            .update_meeting(
+                &meeting.id,
+                UpdateMeetingPatch {
+                    title: Some("Q3 Launch Confirmed".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(renamed.title, "Q3 Launch Confirmed");
 
         let finished = db.finish_meeting(&meeting.id, 35_000).await.unwrap();
         assert_eq!(finished.status, STATUS_COMPLETED);
@@ -1357,7 +2153,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn speaker_rename_updates_transcript_and_search() {
+    async fn speaker_rename_updates_transcript_search_and_preserves_cluster() {
         let db = db().await;
         let meeting = db
             .create_meeting(CreateMeetingInput::default())
@@ -1378,6 +2174,14 @@ mod tests {
             )
             .await
             .unwrap();
+
+        // Even before manual rename, unrenamed diarized speaker labels are indexed in FTS.
+        let initial_hits = db
+            .search("Speaker", SearchFilters::default())
+            .await
+            .unwrap();
+        assert_eq!(initial_hits.len(), 1);
+
         let speaker = db
             .rename_speaker(&meeting.id, "Speaker 1", "Alex", false)
             .await
@@ -1388,10 +2192,17 @@ mod tests {
         assert_eq!(transcript[0].id, segment.id);
         let hits = db.search("Alex", SearchFilters::default()).await.unwrap();
         assert_eq!(hits.len(), 1);
+
+        // Re-renaming by original cluster ("Speaker 1") still works cleanly.
+        db.rename_speaker(&meeting.id, "Speaker 1", "Jordan", false)
+            .await
+            .unwrap();
+        let transcript = db.list_transcript(&meeting.id).await.unwrap();
+        assert_eq!(transcript[0].speaker_label, "Jordan");
     }
 
     #[tokio::test]
-    async fn synthesis_items_roundtrip_and_user_edits_are_flagged() {
+    async fn synthesis_items_roundtrip_and_user_edits_survive_resynthesis() {
         let db = db().await;
         let meeting = db
             .create_meeting(CreateMeetingInput::default())
@@ -1446,15 +2257,80 @@ mod tests {
             .unwrap();
         assert!(updated.is_completed);
         assert!(updated.is_user_edited);
+
+        // Re-synthesizing preserves the user-edited completed action item AND
+        // supports custom white-label item_type slugs (e.g. SOAP 'subjective').
+        let resynthesized = db
+            .replace_synthesis_items(
+                &meeting.id,
+                vec![
+                    SynthesisItemDraft {
+                        item_type: "subjective".into(),
+                        sort_order: 0,
+                        content: "Patient reports improved adherence.".into(),
+                        rationale: None,
+                        owner: None,
+                        deadline: None,
+                        is_completed: false,
+                        is_user_edited: false,
+                        evidence_refs: vec!["T-00:40".into()],
+                    },
+                    SynthesisItemDraft {
+                        item_type: "action_item".into(),
+                        sort_order: 1,
+                        content: "Send revised AWS cost sheet.".into(),
+                        rationale: None,
+                        owner: Some("Alex".into()),
+                        deadline: Some("Wednesday".into()),
+                        is_completed: false,
+                        is_user_edited: false,
+                        evidence_refs: vec!["T-09:20".into()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(resynthesized.len(), 2);
+        let kept_action = resynthesized
+            .iter()
+            .find(|item| item.item_type == "action_item")
+            .unwrap();
+        assert!(kept_action.is_completed);
+        assert!(kept_action.is_user_edited);
     }
 
     #[tokio::test]
-    async fn screenshot_ocr_update_refreshes_search() {
+    async fn screenshot_ocr_tags_and_folders_crud_roundtrip() {
         let db = db().await;
-        let meeting = db
-            .create_meeting(CreateMeetingInput::default())
+        let folder = db.create_folder("Clinical", None).await.unwrap();
+        let renamed_folder = db
+            .rename_folder(&folder.id, "Clinical Intake")
             .await
             .unwrap();
+        assert_eq!(renamed_folder.name, "Clinical Intake");
+
+        let meeting = db
+            .create_meeting(CreateMeetingInput {
+                folder_id: Some(folder.id.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        let tags = db
+            .set_meeting_tags(&meeting.id, vec!["HIPAA".into(), "Intake".into()])
+            .await
+            .unwrap();
+        assert_eq!(tags, vec!["hipaa", "intake"]);
+        assert_eq!(db.list_all_tags().await.unwrap(), vec!["hipaa", "intake"]);
+        assert_eq!(
+            db.search("hipaa", SearchFilters::default())
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+
         let shot = db
             .insert_screenshot(
                 &meeting.id,
@@ -1479,5 +2355,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(hits.len(), 1);
+
+        db.delete_screenshot(&shot.id).await.unwrap();
+        assert!(db
+            .search("FedRAMP", SearchFilters::default())
+            .await
+            .unwrap()
+            .is_empty());
+
+        db.delete_folder(&folder.id).await.unwrap();
+        assert_eq!(db.get_meeting(&meeting.id).await.unwrap().folder_id, None);
     }
 }

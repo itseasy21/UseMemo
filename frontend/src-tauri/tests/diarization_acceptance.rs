@@ -43,6 +43,7 @@ const LINES_B: [&str; 2] = [
 ];
 
 #[test]
+#[ignore = "requires macOS Screen Recording permission and audible speaker output; run with MEMO_DIARIZATION_E2E=1 cargo test -- --ignored"]
 fn two_voices_are_separated_from_loopback_audio() {
     if std::env::var("MEMO_DIARIZATION_E2E").as_deref() != Ok("1") {
         eprintln!(

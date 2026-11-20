@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use async_trait::async_trait;
 
 use crate::brand::Brand;
@@ -5,14 +7,37 @@ use crate::error::AppResult;
 
 use super::context::SynthesisContext;
 use super::parse::parse_synthesis;
-use super::prompt::build_request;
-use super::types::{SynthesisRequest, VerifiedSynthesis};
-use super::verifier::verify;
+use super::prompt::build_request_for_text;
+use super::types::{SynthesisRequest, VerificationReport, VerifiedSynthesis};
+use super::verifier::verify_with_brand;
+
+/// Maximum context bytes (~11k tokens) sent in a single inference window before
+/// automatic map-reduce windowing kicks in for multi-hour transcripts.
+pub const MAX_WINDOW_CHARS: usize = 44_000;
+
+pub type TokenCallback<'a> = &'a (dyn Fn(&str) + Send + Sync);
 
 #[async_trait]
 pub trait SynthesisEngine: Send + Sync {
     fn engine_id(&self) -> &str;
+    fn model_path(&self) -> Option<&std::path::Path> {
+        None
+    }
+    async fn warm(&self) -> AppResult<()> {
+        Ok(())
+    }
+    async fn unload(&self) -> AppResult<()> {
+        Ok(())
+    }
     async fn generate(&self, request: SynthesisRequest) -> AppResult<String>;
+
+    async fn generate_streaming(
+        &self,
+        request: SynthesisRequest,
+        _on_token: TokenCallback<'_>,
+    ) -> AppResult<String> {
+        self.generate(request).await
+    }
 }
 
 /// Full pipeline: deterministic prompt -> local engine -> strict JSON parse ->
@@ -22,10 +47,53 @@ pub async fn synthesize(
     context: &SynthesisContext,
     engine: &dyn SynthesisEngine,
 ) -> AppResult<VerifiedSynthesis> {
-    let request = build_request(brand, context);
-    let raw = engine.generate(request).await?;
-    let parsed = parse_synthesis(&raw)?;
-    Ok(verify(parsed, &context.index))
+    synthesize_streaming(brand, context, engine, &|_| {}).await
+}
+
+pub async fn synthesize_streaming(
+    brand: &Brand,
+    context: &SynthesisContext,
+    engine: &dyn SynthesisEngine,
+    on_token: TokenCallback<'_>,
+) -> AppResult<VerifiedSynthesis> {
+    let windows = context.windowed_texts(MAX_WINDOW_CHARS);
+    if windows.len() <= 1 {
+        let request = build_request_for_text(brand, &context.text);
+        let raw = engine.generate_streaming(request, on_token).await?;
+        let parsed = parse_synthesis(&raw)?;
+        return Ok(verify_with_brand(Some(brand), parsed, &context.index));
+    }
+
+    let mut combined_items = Vec::new();
+    let mut combined_report = VerificationReport::default();
+    let mut seen_keys: BTreeSet<(String, String)> = BTreeSet::new();
+
+    for window_text in &windows {
+        let request = build_request_for_text(brand, window_text);
+        let raw = engine.generate_streaming(request, on_token).await?;
+        let parsed = parse_synthesis(&raw)?;
+        let chunk_verified = verify_with_brand(Some(brand), parsed, &context.index);
+        combined_report.merge(&chunk_verified.report);
+
+        for mut item in chunk_verified.items {
+            let dedup_key = (item.item_type.clone(), item.content.trim().to_lowercase());
+            if seen_keys.insert(dedup_key) {
+                item.sort_order = combined_items
+                    .iter()
+                    .filter(|existing: &&super::types::SynthesisItemDraft| {
+                        existing.item_type == item.item_type
+                    })
+                    .count() as i64;
+                combined_items.push(item);
+            }
+        }
+    }
+
+    combined_report.kept_items = combined_items.len();
+    Ok(VerifiedSynthesis {
+        items: combined_items,
+        report: combined_report,
+    })
 }
 
 #[cfg(test)]

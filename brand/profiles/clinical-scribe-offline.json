@@ -29,6 +29,35 @@
     "enableGnuKeybindings": false
   },
   "modelRegistry": {
-    "defaultSlmRepo": "litert-community/gemma-4-E4B-it-litert-lm"
+    "defaultSlmRepo": "bartowski/google_gemma-3-4b-it-GGUF"
+  },
+  "synthesisTemplate": {
+    "name": "Clinical SOAP Note",
+    "sections": [
+      {
+        "key": "subjective",
+        "label": "Subjective",
+        "kind": "bullets",
+        "description": "Patient-reported symptoms, history of present illness, and stated concerns"
+      },
+      {
+        "key": "objective",
+        "label": "Objective",
+        "kind": "bullets",
+        "description": "Observed vitals, physical exam findings, and diagnostic/slide measurements"
+      },
+      {
+        "key": "assessment",
+        "label": "Assessment",
+        "kind": "decisions",
+        "description": "Clinical impressions, differential assessment, and documented rationale"
+      },
+      {
+        "key": "plan",
+        "label": "Plan & Follow-Up",
+        "kind": "actions",
+        "description": "Treatment plan, orders, clinician owner, and follow-up timeframe"
+      }
+    ]
   }
 }

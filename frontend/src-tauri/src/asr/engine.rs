@@ -22,10 +22,17 @@ pub struct AsrSegment {
     pub text: String,
 }
 
+/// Per-window decoding options passed to an [`AsrEngine`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AsrOptions<'a> {
+    pub language: Option<&'a str>,
+    pub initial_prompt: Option<&'a str>,
+}
+
 /// A loaded speech-to-text engine.
 ///
 /// `transcribe` is synchronous because every backend we care about (whisper.cpp,
-/// LiteRT-LM, ONNX) is synchronous and CPU-bound. Callers run it on a blocking
+/// LiteRT-LM, ONNX) is synchronous and CPU/GPU-bound. Callers run it on a blocking
 /// pool; making the trait `async` would only move `spawn_blocking` inward.
 pub trait AsrEngine: Send + Sync {
     fn engine_id(&self) -> &str;
@@ -33,9 +40,18 @@ pub trait AsrEngine: Send + Sync {
     /// Decode one block of 16 kHz mono samples. Timestamps are block-relative.
     fn transcribe(&self, samples_16k: &[f32], language: Option<&str>)
         -> AppResult<Vec<AsrSegment>>;
+
+    /// Decode one block of 16 kHz mono samples with optional domain prompt biasing.
+    fn transcribe_with_options(
+        &self,
+        samples_16k: &[f32],
+        options: AsrOptions<'_>,
+    ) -> AppResult<Vec<AsrSegment>> {
+        self.transcribe(samples_16k, options.language)
+    }
 }
 
-/// Sample ranges for `total` samples split into `per_block` windows.
+/// Sample ranges for `total` samples split into fixed `per_block` windows.
 ///
 /// The final window is short, which is fine: the engine pads it.
 pub fn block_ranges(total: usize, per_block: usize) -> Vec<(usize, usize)> {
@@ -49,6 +65,66 @@ pub fn block_ranges(total: usize, per_block: usize) -> Vec<(usize, usize)> {
         ranges.push((start, end));
         start = end;
     }
+    ranges
+}
+
+/// Pause-aware VAD sample ranges near `max_block_samples` (typically 480,000 = 30s).
+///
+/// Instead of slicing blindly at exact 30.000s boundaries—which frequently cuts
+/// spoken words mid-syllable—this scans the trailing 20% of each candidate block
+/// in 100 ms (`1,600` sample) energy frames and splits at the lowest-RMS pause
+/// boundary. Every sample in `0..samples_16k.len()` is covered once without gaps.
+pub fn vad_block_ranges(samples_16k: &[f32], max_block_samples: usize) -> Vec<(usize, usize)> {
+    let total = samples_16k.len();
+    if total == 0 || max_block_samples == 0 {
+        return Vec::new();
+    }
+    if total <= max_block_samples {
+        return vec![(0, total)];
+    }
+
+    const FRAME_SAMPLES: usize = 1_600; // 100 ms @ 16 kHz
+    let min_block_samples = (max_block_samples * 4 / 5).max(FRAME_SAMPLES);
+    let mut ranges = Vec::with_capacity(total.div_ceil(min_block_samples));
+    let mut start = 0usize;
+
+    while start < total {
+        let remaining = total - start;
+        if remaining <= max_block_samples {
+            ranges.push((start, total));
+            break;
+        }
+
+        let search_start = start + min_block_samples;
+        let search_end = start + max_block_samples;
+        let mut best_cut = search_end;
+        let mut lowest_energy = f64::INFINITY;
+
+        let mut cursor = search_start;
+        while cursor + FRAME_SAMPLES <= search_end {
+            let window = &samples_16k[cursor..cursor + FRAME_SAMPLES];
+            let mut sum = 0.0f64;
+            for &sample in window {
+                let v = if sample.is_finite() {
+                    sample as f64
+                } else {
+                    0.0
+                };
+                sum += v * v;
+            }
+            let mean_sq = sum / FRAME_SAMPLES as f64;
+            if mean_sq <= lowest_energy {
+                lowest_energy = mean_sq;
+                best_cut = cursor + FRAME_SAMPLES / 2;
+            }
+            cursor += FRAME_SAMPLES / 2;
+        }
+
+        let end = best_cut.clamp(start + 1, total);
+        ranges.push((start, end));
+        start = end;
+    }
+
     ranges
 }
 
@@ -162,5 +238,29 @@ mod tests {
             Some("We decided to delay the beta by two weeks.".to_string())
         );
         assert_eq!(clean_text("Okay."), Some("Okay.".to_string()));
+    }
+
+    #[test]
+    fn vad_ranges_split_at_quiet_pause_and_cover_every_sample() {
+        let max_block = 480_000; // 30s @ 16 kHz
+                                 // Fill 40s with loud tone, then carve a 400ms silent pause around 26.5s.
+        let mut samples: Vec<f32> = (0..640_000)
+            .map(|n| (2.0 * std::f32::consts::PI * 220.0 * n as f32 / 16_000.0).sin() * 0.4)
+            .collect();
+        let pause_start = 26 * 16_000 + 8_000;
+        let pause_end = pause_start + 6_400;
+        samples[pause_start..pause_end].fill(0.0);
+
+        let ranges = vad_block_ranges(&samples, max_block);
+        assert_eq!(ranges.len(), 2);
+        let (first_start, first_end) = ranges[0];
+        let (second_start, second_end) = ranges[1];
+        assert_eq!(first_start, 0);
+        assert!(
+            (pause_start..=pause_end).contains(&first_end),
+            "expected split inside silent pause [{pause_start}..{pause_end}], got {first_end}"
+        );
+        assert_eq!(second_start, first_end);
+        assert_eq!(second_end, samples.len());
     }
 }

@@ -39,6 +39,10 @@ pub struct AudioLevelsPayload {
     pub rms_dbfs: f32,
     pub peak_dbfs: f32,
     pub at_ms: i64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub echo_bleed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -190,6 +194,8 @@ mod tests {
             rms_dbfs: -24.0,
             peak_dbfs: -12.0,
             at_ms: 1_500,
+            echo_bleed: false,
+            device_error: None,
         };
         let value = serde_json::to_value(payload).unwrap();
         assert_eq!(value["meetingId"], "m");

@@ -44,7 +44,7 @@ pub fn cluster(
     durations_ms: &[u32],
     config: &ClusterConfig,
 ) -> Clustering {
-    let count = embeddings.len();
+    let count = embeddings.len().min(durations_ms.len());
     if count == 0 {
         return Clustering {
             assignments: Vec::new(),
@@ -52,11 +52,8 @@ pub fn cluster(
             separation: 0.0,
         };
     }
-    assert_eq!(
-        count,
-        durations_ms.len(),
-        "every embedding needs a duration"
-    );
+    let embeddings = &embeddings[..count];
+    let durations_ms = &durations_ms[..count];
 
     let points = prepare(embeddings);
     let max_k = config

@@ -16,8 +16,9 @@ pub mod transcribe;
 pub mod whisper;
 
 pub use engine::{
-    block_ranges, clean_text, is_silent, AsrEngine, AsrSegment, BLOCK_MS, SILENCE_DBFS,
+    block_ranges, clean_text, is_silent, vad_block_ranges, AsrEngine, AsrOptions, AsrSegment,
+    BLOCK_MS, SILENCE_DBFS,
 };
-pub use transcribe::{transcribe_meeting, TranscriptionOutcome};
+pub use transcribe::{spawn_live_caption_worker, transcribe_meeting, TranscriptionOutcome};
 #[cfg(feature = "asr")]
 pub use whisper::WhisperEngine;

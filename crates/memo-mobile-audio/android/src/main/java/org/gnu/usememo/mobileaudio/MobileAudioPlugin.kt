@@ -3,6 +3,7 @@ package org.gnu.usememo.mobileaudio
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -27,8 +28,10 @@ import app.tauri.plugin.Plugin
 class MobileAudioPlugin(private val activity: Activity) : Plugin(activity) {
     private val audioManager =
         activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private val focusListener = object : AudioManager.OnAudioFocusChangeListener {
-        override fun onAudioFocusChange(focusChange: Int) {}
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        val event = JSObject()
+        event.put("focusChange", focusChange)
+        trigger("audioSessionFocusChanged", event)
     }
     private var focusRequest: AudioFocusRequest? = null
 
@@ -52,14 +55,15 @@ class MobileAudioPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
-     * Ask for transient-exclusive focus so other playback does not bleed into
-     * the microphone. Focus is advisory; capture still proceeds if denied.
+     * Request non-exclusive transient audio focus (so concurrent conference apps
+     * remain audible instead of being muted) and promote process to an Android 14+
+     * `microphone` Foreground Service so screen-off capture is never silenced.
      */
     @Command
     fun configureAudioSession(invoke: Invoke) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val request = AudioFocusRequest.Builder(
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             )
                 .setAudioAttributes(
                     AudioAttributes.Builder()
@@ -67,6 +71,7 @@ class MobileAudioPlugin(private val activity: Activity) : Plugin(activity) {
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
+                .setAcceptsDelayedFocusGain(true)
                 .setOnAudioFocusChangeListener(focusListener)
                 .build()
             focusRequest = request
@@ -76,8 +81,19 @@ class MobileAudioPlugin(private val activity: Activity) : Plugin(activity) {
             audioManager.requestAudioFocus(
                 focusListener,
                 AudioManager.STREAM_VOICE_CALL,
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             )
+        }
+
+        try {
+            val serviceIntent = Intent(activity, RecordingForegroundService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                activity.startForegroundService(serviceIntent)
+            } else {
+                activity.startService(serviceIntent)
+            }
+        } catch (_: Throwable) {
+            // Best-effort if OS restricts foreground start from background state.
         }
 
         val result = JSObject()
@@ -88,6 +104,12 @@ class MobileAudioPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun deactivateAudioSession(invoke: Invoke) {
+        try {
+            val serviceIntent = Intent(activity, RecordingForegroundService::class.java)
+            activity.stopService(serviceIntent)
+        } catch (_: Throwable) {
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
             focusRequest = null

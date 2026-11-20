@@ -20,16 +20,21 @@ export type Speaker = {
 
 export type NoteLine = {
   id: string;
+  lineIndex?: number;
   startMs: number;
   kind: NoteKind;
   text: string;
+  linkedScreenshotId?: string | null;
 };
 
 export type TranscriptSegment = {
   id: string;
+  seqNo?: number;
   startMs: number;
   endMs: number;
   speakerId: string;
+  speakerLabelRaw?: string;
+  audioChannel?: string;
   confirmedText: string;
   unconfirmedText?: string;
   screenshotId?: string;
@@ -39,21 +44,29 @@ export type TranscriptSegment = {
 export type Screenshot = {
   id: string;
   startMs: number;
+  endMs?: number;
   title: string;
   caption: string;
   slideText: string;
   palette: SlidePalette;
   trigger: "interval" | "manual" | "slide-change";
+  filePath?: string | null;
+  assetUrl?: string | null;
+  width?: number;
+  height?: number;
+  dhash?: string;
+  ocrExtractedText?: string | null;
 };
 
 export type EvidenceRef =
-  | { kind: "transcript"; id: string }
-  | { kind: "note"; id: string }
-  | { kind: "screenshot"; id: string };
+  | { kind: "transcript"; id: string; rawTag?: string }
+  | { kind: "note"; id: string; rawTag?: string }
+  | { kind: "screenshot"; id: string; rawTag?: string };
 
 export type Decision = {
   id: string;
   text: string;
+  rationale?: string | null;
   evidence: EvidenceRef[];
   userEdited?: boolean;
 };
@@ -61,16 +74,30 @@ export type Decision = {
 export type ActionItem = {
   id: string;
   task: string;
+  rationale?: string | null;
   ownerId?: string;
+  ownerLabel?: string | null;
   deadline?: string;
   evidence: EvidenceRef[];
   done?: boolean;
   userEdited?: boolean;
 };
 
+export type CustomSynthesisSection = {
+  itemType: string;
+  label: string;
+  items: Array<{
+    id: string;
+    text: string;
+    rationale?: string | null;
+    evidence: EvidenceRef[];
+    userEdited?: boolean;
+  }>;
+};
+
 export type SynthesisSummary = {
   headline: string;
-  paragraphs: Array<{ id: string; text: string; evidence: EvidenceRef[] }>;
+  paragraphs: Array<{ id: string; text: string; evidence: EvidenceRef[]; userEdited?: boolean }>;
   keyPoints: string[];
   confidence: number;
   groundedClaims: number;
@@ -80,19 +107,42 @@ export type SynthesisSummary = {
 export type Meeting = {
   id: string;
   title: string;
+  status?: string;
+  createdAt?: number;
+  updatedAt?: number;
   dateLabel: string;
   startedAtISO: string;
   durationMs: number;
   folder: string;
+  folderId?: string | null;
+  isStarred?: boolean;
   tags: string[];
+  audioFilePath?: string | null;
+  systemAudioFilePath?: string | null;
+  systemAudioStartedAtMs?: number;
+  diarizationEnabled?: boolean;
+  screenshotIntervalSec?: number;
+  asrModelId?: string;
+  slmModelId?: string;
+  manualNotesRawMd?: string;
+  isDemo?: boolean;
   participants: Speaker[];
   notes: NoteLine[];
   transcripts: TranscriptSegment[];
   screenshots: Screenshot[];
   decisions: Decision[];
   actions: ActionItem[];
+  customSections?: CustomSynthesisSection[];
   summary: SynthesisSummary;
 };
+
+export function meetingHref(meetingId: string): string {
+  return `/meeting/?id=${encodeURIComponent(meetingId)}`;
+}
+
+export function synthesisHref(meetingId: string): string {
+  return `/meeting/synthesis/?id=${encodeURIComponent(meetingId)}`;
+}
 
 export type DemoModelFile = {
   filename: string;
@@ -973,8 +1023,13 @@ export const MEETINGS: Meeting[] = [q3Launch, billingArch, designCrit];
 export const MEETING_IDS = MEETINGS.map((meeting) => meeting.id);
 export const FEATURED_MEETING = q3Launch;
 
+export function findDemoMeeting(id: string): Meeting | null {
+  const found = MEETINGS.find((meeting) => meeting.id === id);
+  return found ? { ...found, isDemo: true } : null;
+}
+
 export function getMeeting(id: string): Meeting {
-  return MEETINGS.find((meeting) => meeting.id === id) ?? FEATURED_MEETING;
+  return { ...(MEETINGS.find((meeting) => meeting.id === id) ?? FEATURED_MEETING), isDemo: true };
 }
 
 export function getSpeaker(meeting: Meeting, speakerId: string): Speaker {
@@ -1057,8 +1112,23 @@ export function truncate(value: string, max = 120): string {
 }
 
 export function meetingActionOwner(meeting: Meeting, action: ActionItem): Speaker | null {
-  if (!action.ownerId) return null;
-  return meeting.participants.find((speaker) => speaker.id === action.ownerId) ?? null;
+  if (action.ownerId) {
+    const matched = meeting.participants.find((speaker) => speaker.id === action.ownerId);
+    if (matched) return matched;
+  }
+  const label = action.ownerLabel?.trim();
+  if (!label || label.toLowerCase() === "unassigned") return null;
+  const byName = meeting.participants.find(
+    (speaker) => speaker.name.toLowerCase() === label.toLowerCase(),
+  );
+  if (byName) return byName;
+  return {
+    id: `owner-${label.toLowerCase().replace(/\s+/g, "-")}`,
+    name: label,
+    role: "Participant",
+    tone: label.toLowerCase() === "you" ? "violet" : "accent",
+    isYou: label.toLowerCase() === "you",
+  };
 }
 
 export const PENDING_ACTIONS = MEETINGS.flatMap((meeting) =>
@@ -1097,6 +1167,29 @@ export const DEMO_HARDWARE = {
 } as const;
 
 export const DEMO_MODELS: DemoModel[] = [
+  {
+    id: "whisper-large-v3-turbo",
+    name: "Whisper Large v3 Turbo",
+    role: "Speech → text",
+    repo: MODEL_REGISTRY.defaultAsrRepo,
+    description:
+      "Quantized Whisper Large v3 Turbo (99 languages), studio-grade accuracy at 8x speed on Metal GPU.",
+    files: [
+      {
+        filename: "ggml-large-v3-turbo-q5_0.bin",
+        sizeBytes: 574_041_195,
+        sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+      },
+    ],
+    accelerator: "Metal GPU / ARM NEON",
+    minRamGb: 8,
+    recommended: false,
+    enabled: false,
+    status: "available",
+    verified: false,
+    downloadProgress: 0,
+    speedMbps: 0,
+  },
   {
     id: "whisper-small",
     name: "Whisper Small",
@@ -1144,43 +1237,158 @@ export const DEMO_MODELS: DemoModel[] = [
     speedMbps: 0,
   },
   {
-    id: "gemma-4-e2b-it",
-    name: "Gemma 4 E2B IT",
+    id: "qwen3.5-4b",
+    name: "Qwen 3.5 4B",
     role: "Synthesis SLM",
-    repo: MODEL_REGISTRY.defaultSlmRepo,
+    repo: "unsloth/Qwen3.5-4B-GGUF",
     description:
-      "QAT INT4, 32k context, text + vision synthesis for 8–15 GB systems. Supports slide OCR grounding.",
+      "Next-gen Qwen 3.5 4B (hybrid Gated DeltaNet), superior JSON extraction & grounded Q&A for 8 GB+ Macs.",
     files: [
       {
-        filename: "gemma-4-E2B-it.litertlm",
-        sizeBytes: 2_588_147_712,
-        sha256: "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+        filename: "Qwen3.5-4B-Q4_K_M.gguf",
+        sizeBytes: 2_740_937_888,
+        sha256: "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
       },
     ],
-    accelerator: "Metal / Vulkan / XNNPACK",
+    accelerator: "Metal GPU / llama.cpp",
     minRamGb: 8,
     recommended: false,
     enabled: false,
-    status: "downloading",
+    status: "available",
     verified: false,
-    downloadProgress: 68,
-    speedMbps: 42.6,
+    downloadProgress: 0,
+    speedMbps: 0,
+  },
+  {
+    id: "gemma-4-e2b-it",
+    name: "Gemma 4 E2B",
+    role: "Synthesis SLM",
+    repo: "unsloth/gemma-4-E2B-it-GGUF",
+    description:
+      "Google Gemma 4 Effective-2B (Per-Layer Embeddings), 4B-class reasoning with 2B active memory for 8 GB+ Macs.",
+    files: [
+      {
+        filename: "gemma-4-E2B-it-Q4_K_M.gguf",
+        sizeBytes: 3_106_738_272,
+        sha256: "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
+      },
+    ],
+    accelerator: "Metal GPU / llama.cpp",
+    minRamGb: 8,
+    recommended: false,
+    enabled: false,
+    status: "available",
+    verified: false,
+    downloadProgress: 0,
+    speedMbps: 0,
   },
   {
     id: "gemma-4-e4b-it",
-    name: "Gemma 4 E4B IT",
+    name: "Gemma 4 E4B",
+    role: "Pro synthesis SLM",
+    repo: "unsloth/gemma-4-E4B-it-GGUF",
+    description:
+      "Google Gemma 4 Effective-4B, 128k context flagship on-device reasoning for 16 GB+ Macs.",
+    files: [
+      {
+        filename: "gemma-4-E4B-it-Q4_K_M.gguf",
+        sizeBytes: 4_977_171_584,
+        sha256: "85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87",
+      },
+    ],
+    accelerator: "Metal GPU / llama.cpp",
+    minRamGb: 16,
+    recommended: false,
+    enabled: false,
+    status: "available",
+    verified: false,
+    downloadProgress: 0,
+    speedMbps: 0,
+  },
+  {
+    id: "lfm2.5-1.2b-instruct",
+    name: "LiquidAI LFM 2.5 1.2B",
+    role: "Synthesis SLM",
+    repo: "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
+    description:
+      "LiquidAI LFM 2.5 1.2B Instruct (697 MB), ultra-fast state-space hybrid with minimal RAM usage for 4–8 GB Macs.",
+    files: [
+      {
+        filename: "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
+        sizeBytes: 730_895_168,
+        sha256: "b1b3de114215d9507409a662a501a631095a479a419584e8a2ded6304b19b4f5",
+      },
+    ],
+    accelerator: "Metal GPU / llama.cpp",
+    minRamGb: 4,
+    recommended: false,
+    enabled: false,
+    status: "available",
+    verified: false,
+    downloadProgress: 0,
+    speedMbps: 0,
+  },
+  {
+    id: "lfm2.5-2.6b-instruct",
+    name: "LiquidAI LFM 2.5 2.6B",
+    role: "Synthesis SLM",
+    repo: "LiquidAI/LFM2.5-2.6B-GGUF",
+    description:
+      "LiquidAI LFM 2.5 2.6B (1.56 GB), high-throughput Liquid Foundation Model for 8–16 GB Macs.",
+    files: [
+      {
+        filename: "LFM2.5-2.6B-Q4_K_M.gguf",
+        sizeBytes: 1_674_455_040,
+        sha256: "02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed",
+      },
+    ],
+    accelerator: "Metal GPU / llama.cpp",
+    minRamGb: 8,
+    recommended: false,
+    enabled: false,
+    status: "available",
+    verified: false,
+    downloadProgress: 0,
+    speedMbps: 0,
+  },
+  {
+    id: "qwen2.5-3b-instruct",
+    name: "Qwen 2.5 3B Instruct",
+    role: "Synthesis SLM",
+    repo: MODEL_REGISTRY.defaultSlmRepo,
+    description:
+      "Q4_K_M GGUF, 16k–32k context, structured JSON synthesis for 8–15 GB systems. Runs in-process via llama.cpp.",
+    files: [
+      {
+        filename: "qwen2.5-3b-instruct-q4_k_m.gguf",
+        sizeBytes: 2_104_932_768,
+        sha256: "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d",
+      },
+    ],
+    accelerator: "Metal GPU / llama.cpp",
+    minRamGb: 8,
+    recommended: false,
+    enabled: false,
+    status: "available",
+    verified: false,
+    downloadProgress: 0,
+    speedMbps: 0,
+  },
+  {
+    id: "gemma-3-4b-it",
+    name: "Gemma 3 4B IT",
     role: "Pro synthesis SLM",
     repo: MODEL_REGISTRY.proSlmRepo,
     description:
-      "Higher-reasoning QAT INT4 SLM for 16 GB+ hosts. Selected automatically on this machine's high hardware tier.",
+      "Higher-reasoning Q4_K_M GGUF SLM for 16 GB+ hosts. Selected automatically on this machine's high hardware tier.",
     files: [
       {
-        filename: "gemma-4-E4B-it.litertlm",
-        sizeBytes: 3_659_530_240,
-        sha256: "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+        filename: "google_gemma-3-4b-it-Q4_K_M.gguf",
+        sizeBytes: 2_489_758_112,
+        sha256: "4996030242583a40aa151ff93f49ed787ac8c25e4120c3ae4588b2e2a7d1ae94",
       },
     ],
-    accelerator: "Metal / Vulkan / XNNPACK",
+    accelerator: "Metal GPU / llama.cpp",
     minRamGb: 16,
     recommended: true,
     enabled: true,

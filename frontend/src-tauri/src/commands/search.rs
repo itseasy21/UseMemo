@@ -28,6 +28,20 @@ pub async fn create_folder(
 }
 
 #[tauri::command]
+pub async fn rename_folder(
+    state: State<'_, AppState>,
+    folder_id: String,
+    name: String,
+) -> AppResult<Folder> {
+    state.db.rename_folder(&folder_id, &name).await
+}
+
+#[tauri::command]
+pub async fn delete_folder(state: State<'_, AppState>, folder_id: String) -> AppResult<()> {
+    state.db.delete_folder(&folder_id).await
+}
+
+#[tauri::command]
 pub async fn list_folders(state: State<'_, AppState>) -> AppResult<Vec<Folder>> {
     state.db.list_folders().await
 }

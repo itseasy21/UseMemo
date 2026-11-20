@@ -24,6 +24,7 @@ use memo_audio_capture::{WavSpec, WavWriter};
 use use_memo_lib::audio::system::SystemAudioCapture;
 
 #[test]
+#[ignore = "requires macOS Screen Recording permission and audible speaker output; run with MEMO_SYSTEM_AUDIO_E2E=1 cargo test -- --ignored"]
 fn loopback_captures_playback() {
     if std::env::var("MEMO_SYSTEM_AUDIO_E2E").as_deref() != Ok("1") {
         eprintln!(

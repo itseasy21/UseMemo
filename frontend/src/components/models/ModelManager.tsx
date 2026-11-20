@@ -1,279 +1,272 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
-  BadgeCheck,
-  Boxes,
+  AudioLines,
   Check,
+  ChevronDown,
   Cpu,
   Download,
-  FileCheck2,
-  Gauge,
+  FileJson,
+  FolderOpen,
   HardDrive,
-  Laptop,
   Loader2,
-  LockKeyhole,
-  MemoryStick,
-  PackageCheck,
   RefreshCw,
   ShieldCheck,
   Sparkles,
-  Upload,
-  WifiOff,
-  Zap,
-  type LucideIcon,
+  Trash2,
 } from "lucide-react";
 
 import { AppShell } from "@/components/shell/AppShell";
 import { Button } from "@/components/ui/Button";
-import { Kbd } from "@/components/ui/Kbd";
-import { Meter } from "@/components/ui/Meter";
 import { Pill } from "@/components/ui/Pill";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { Toggle } from "@/components/ui/Toggle";
 import { BRAND } from "@/generated/brand";
 import { useModelDownloadProgress } from "@/hooks/use-host-event";
-import { DEMO_HARDWARE, DEMO_MODELS, type DemoModel, type DemoModelStatus } from "@/lib/demo-data";
+import { DEMO_HARDWARE, DEMO_MODELS, type DemoModelStatus } from "@/lib/demo-data";
 import { formatBytes } from "@/lib/format";
-import { downloadModel, listModels } from "@/lib/host";
-import { isTauri } from "@/lib/tauri";
+import {
+  cancelModelDownload,
+  deleteModel,
+  downloadModel,
+  exportDiagnostics,
+  getBrandConfig,
+  listModels,
+  type HardwareProfileRecord,
+  type ModelFileRecord,
+} from "@/lib/host";
+import { formatHostError, isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/stores/workspace";
 
-type RuntimeState = {
+type CatalogItem = {
+  id: string;
+  name: string;
+  roleLabel: string;
+  isSynthesis: boolean;
+  repo: string;
+  description: string;
+  files: ModelFileRecord[];
+  accelerator: string;
+  minRamGb: number;
+  recommended: boolean;
   status: DemoModelStatus;
   progress: number;
-  verified: boolean;
-  enabled: boolean;
+  installedBytes: number;
 };
 
-type ModelFilter = "all" | "installed" | "downloading" | "available";
-
-const FILTERS: Array<{ id: ModelFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "installed", label: "Installed" },
-  { id: "downloading", label: "Downloading" },
-  { id: "available", label: "Available" },
-];
-
-const STATUS_TONE: Record<DemoModelStatus, "success" | "warning" | "outline"> = {
-  installed: "success",
-  downloading: "warning",
-  available: "outline",
+const FRIENDLY_NAMES: Record<
+  string,
+  { title: string; subtitle: string; summary: string; badge?: string }
+> = {
+  "whisper-large-v3-turbo": {
+    title: "Whisper Large v3 Turbo",
+    subtitle: "Studio-grade voice recognition · 8× faster",
+    summary:
+      "Flagship 99-language speech model quantized for Apple Silicon Metal GPU (547 MB) with near-zero word error rate.",
+    badge: "Best Accuracy",
+  },
+  "whisper-small": {
+    title: "Whisper Small",
+    subtitle: "Balanced voice recognition",
+    summary: "Best balance of speed and accuracy across 99 languages with speaker turn alignment.",
+  },
+  "whisper-tiny": {
+    title: "Whisper Tiny",
+    subtitle: "Ultra-fast voice recognition",
+    summary: "Lightweight 31 MB model for instant transcription and 4 GB memory devices.",
+  },
+  "qwen3.5-4b": {
+    title: "Qwen 3.5 4B",
+    subtitle: "Next-Gen 8 GB+ Flagship · Gated DeltaNet",
+    summary:
+      "Outperforms Qwen 2.5 7B on structured JSON summaries, action items, and grounded Q&A while running fast in 8 GB RAM.",
+    badge: "Best for 8–16 GB",
+  },
+  "gemma-4-e2b-it": {
+    title: "Gemma 4 E2B",
+    subtitle: "Google Effective-2B · Low-RAM Reasoning",
+    summary:
+      "Per-Layer Embedding architecture delivering 4B-class meeting synthesis with a 2B active memory footprint on 8 GB+ Macs.",
+    badge: "New · Gemma 4",
+  },
+  "gemma-4-e4b-it": {
+    title: "Gemma 4 E4B",
+    subtitle: "Google Effective-4B · 128k Pro Context",
+    summary:
+      "Flagship on-device Gemma 4 model for deep multi-speaker reasoning, executive briefs, and clinical SOAP notes on 16 GB+ Macs.",
+    badge: "Best for 16 GB+",
+  },
+  "lfm2.5-1.2b-instruct": {
+    title: "LiquidAI LFM 2.5 1.2B",
+    subtitle: "Ultra-Fast State-Space Hybrid · 697 MB",
+    summary:
+      "Liquid Foundation Model with 3× lower memory bandwidth than standard Transformers — instant summaries on any 8 GB Mac.",
+    badge: "Ultra-Light",
+  },
+  "lfm2.5-2.6b-instruct": {
+    title: "LiquidAI LFM 2.5 2.6B",
+    subtitle: "High-Throughput Liquid Model · 1.56 GB",
+    summary:
+      "Stronger 2.6B Liquid Foundation Model combining rapid token generation with a compact 1.56 GB footprint for 8–16 GB Macs.",
+    badge: "Low Memory",
+  },
+  "qwen2.5-3b-instruct": {
+    title: "Qwen 2.5 3B",
+    subtitle: "Classic 3B meeting summaries",
+    summary: "Generates grounded executive summaries, decisions, and tasks with source citations.",
+  },
+  "gemma-3-4b-it": {
+    title: "Gemma 3 4B",
+    subtitle: "Classic 4B pro notes",
+    summary: "Higher-capacity model for detailed synthesis and complex multi-speaker meetings.",
+  },
 };
 
-const ACCELERATOR_COLORS = {
-  cpu: "var(--brand-accent-primary)",
-  ram: "var(--brand-accent-secondary)",
-  gpu: "oklch(0.68 0.15 250)",
-  npu: "oklch(0.66 0.14 300)",
+const DISPLAY_ORDER: Record<string, number> = {
+  "whisper-large-v3-turbo": 1,
+  "whisper-small": 2,
+  "whisper-tiny": 3,
+  "qwen3.5-4b": 10,
+  "gemma-4-e2b-it": 11,
+  "lfm2.5-1.2b-instruct": 12,
+  "lfm2.5-2.6b-instruct": 13,
+  "gemma-4-e4b-it": 14,
+  "qwen2.5-3b-instruct": 15,
+  "gemma-3-4b-it": 16,
 };
 
-function initialState(): Record<string, RuntimeState> {
-  return Object.fromEntries(
-    DEMO_MODELS.map((model) => [
-      model.id,
-      {
-        status: model.status,
-        progress: model.downloadProgress,
-        verified: model.verified,
-        enabled: model.enabled,
-      },
-    ]),
-  );
+function formatModelDisplayName(id: string): string {
+  if (FRIENDLY_NAMES[id]) return FRIENDLY_NAMES[id].title;
+  return id
+    .split("-")
+    .map((part) => {
+      if (/^e\d+b$/i.test(part) || /^it$/i.test(part) || /^q\d/i.test(part)) {
+        return part.toUpperCase();
+      }
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ");
 }
 
-function modelIcon(model: DemoModel): LucideIcon {
-  if (model.role.toLowerCase().includes("speech")) return Activity;
-  if (model.role.toLowerCase().includes("synthesis")) return Sparkles;
-  return Cpu;
-}
-
-function totalBytes(model: DemoModel): number {
-  return model.files.reduce((sum, file) => sum + file.sizeBytes, 0);
-}
-
-function StatusPill({ status }: { status: DemoModelStatus }) {
-  if (status === "installed") {
-    return (
-      <Pill tone="success" className="gap-1" icon={<Check className="size-2.5" />}>
-        Installed
-      </Pill>
-    );
+function roleLabelFor(role: string): { label: string; isSynthesis: boolean } {
+  switch (role) {
+    case "asr":
+      return { label: "Voice to Text", isSynthesis: false };
+    case "fallback_asr":
+      return { label: "Compact Voice to Text", isSynthesis: false };
+    case "slm":
+      return { label: "Meeting Summary", isSynthesis: true };
+    case "pro_slm":
+      return { label: "Pro Meeting Summary", isSynthesis: true };
+    default:
+      return {
+        label: role,
+        isSynthesis: role.toLowerCase().includes("synthesis") || role.toLowerCase().includes("slm"),
+      };
   }
-  if (status === "downloading") {
-    return (
-      <Pill tone="warning" className="gap-1" icon={<Download className="size-2.5" />}>
-        Downloading
-      </Pill>
-    );
-  }
-  return <Pill tone="outline">Not downloaded</Pill>;
 }
 
-function MeterCard({
-  label,
-  detail,
-  value,
-  meter,
-  icon: Icon,
-  color,
-}: {
-  label: string;
-  detail: string;
-  value: string;
-  meter: number;
-  icon: LucideIcon;
-  color: string;
-}) {
-  return (
-    <div className="panel p-3.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-          <Icon className="size-3 text-text-muted" />
-          {label}
-        </p>
-        <span className="tabular text-[10px] text-text-primary">{Math.round(meter * 100)}%</span>
-      </div>
-      <p className="mt-1.5 truncate text-[11px] font-medium text-text-primary">{value}</p>
-      <Meter
-        value={meter}
-        label={`${label} utilisation`}
-        color={color}
-        segments={16}
-        className="mt-2 h-1.5"
-      />
-      <p className="mt-1.5 truncate text-[8px] text-text-muted/75">{detail}</p>
-    </div>
-  );
+function totalBytes(files: ModelFileRecord[]): number {
+  return files.reduce((sum, file) => sum + file.sizeBytes, 0);
 }
 
-function ModelCard({
+function GlassModelCard({
   model,
-  state,
   selected,
-  verifying,
-  requireSha,
+  busyDelete,
   onDownload,
-  onVerify,
-  onToggle,
+  onCancel,
+  onDelete,
   onPrefer,
 }: {
-  model: DemoModel;
-  state: RuntimeState;
+  model: CatalogItem;
   selected: boolean;
-  verifying: boolean;
-  requireSha: boolean;
+  busyDelete: boolean;
   onDownload: () => void;
-  onVerify: () => void;
-  onToggle: (enabled: boolean) => void;
+  onCancel: () => void;
+  onDelete: () => void;
   onPrefer: () => void;
 }) {
-  const Icon = modelIcon(model);
-  const synthesis = model.role.toLowerCase().includes("synthesis");
-  const size = totalBytes(model);
-  const [primaryFile] = model.files;
+  const Icon = model.isSynthesis ? Sparkles : AudioLines;
+  const size = totalBytes(model.files);
+  const friendly = FRIENDLY_NAMES[model.id];
+  const isInstalled = model.status === "installed";
+  const isDownloading = model.status === "downloading";
 
   return (
-    <article aria-labelledby={`model-${model.id}-name`} className="px-4 py-3.5">
-      <div className="flex flex-wrap items-start gap-3">
-        <span
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-[7px] border",
-            state.status === "installed"
-              ? "border-accent-primary/25 bg-accent-primary/10 text-accent-primary"
-              : "border-border-subtle bg-bg-primary/40 text-text-muted",
-          )}
-        >
-          <Icon className="size-3.5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-            <h3
-              id={`model-${model.id}-name`}
-              className="text-[12.5px] font-semibold tracking-[-0.01em] text-text-primary"
+    <article
+      aria-labelledby={`model-${model.id}-name`}
+      className={cn(
+        "panel group relative flex flex-col justify-between p-5 transition-all duration-200",
+        isInstalled &&
+          "border-accent-primary/25 bg-[color-mix(in_oklab,var(--brand-accent-primary)_4%,var(--glass-surface))]",
+      )}
+    >
+      <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span
+              className={cn(
+                "flex size-11 shrink-0 items-center justify-center rounded-2xl border transition-colors",
+                isInstalled
+                  ? "border-accent-primary/30 bg-accent-primary/14 text-accent-primary shadow-[0_0_20px_-4px_color-mix(in_oklab,var(--brand-accent-primary)_40%,transparent)]"
+                  : "border-[var(--glass-border-strong)] bg-[var(--glass-surface-subtle)] text-text-muted",
+              )}
             >
-              {model.name}
-            </h3>
-            {model.recommended && <Pill tone="accent">Recommended</Pill>}
-            {synthesis && selected && <Pill tone="secondary">Synthesis default</Pill>}
-            <StatusPill status={state.status} />
+              <Icon className="size-5" aria-hidden="true" />
+            </span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3
+                  id={`model-${model.id}-name`}
+                  className="text-[15px] font-semibold tracking-[-0.015em] text-text-primary"
+                >
+                  {model.name}
+                </h3>
+                {friendly?.badge && !isInstalled && <Pill tone="accent">{friendly.badge}</Pill>}
+                {!friendly?.badge && model.recommended && !isInstalled && (
+                  <Pill tone="accent">Recommended</Pill>
+                )}
+                {selected && isInstalled && (
+                  <Pill tone="accent" icon={<Check className="size-2.5" />}>
+                    Active
+                  </Pill>
+                )}
+                {!selected && isInstalled && (
+                  <Pill tone="success" icon={<Check className="size-2.5" />}>
+                    Ready
+                  </Pill>
+                )}
+              </div>
+              <p className="mt-0.5 text-[12px] font-medium text-text-muted">
+                {friendly?.subtitle ?? model.roleLabel}
+              </p>
+            </div>
           </div>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[8.5px] text-text-muted">
-            <span className="font-semibold uppercase tracking-[0.1em]">{model.role}</span>
-            <span className="text-border-subtle">·</span>
-            <span className="truncate font-mono text-[8px]">{model.repo}</span>
-          </p>
-          <p className="mt-1.5 max-w-[720px] text-[10.5px] leading-5 text-text-muted">
-            {model.description}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <Toggle
-            checked={state.enabled}
-            onChange={onToggle}
-            label={`Enable ${model.name}`}
-            disabled={state.status === "available"}
-            size="sm"
-          />
-          <span className="w-11 text-[8px] uppercase tracking-[0.06em] text-text-muted">
-            {state.enabled ? "enabled" : "off"}
+          <span className="tabular shrink-0 rounded-full border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-2.5 py-1 text-[11px] font-medium text-text-muted">
+            {formatBytes(size)}
           </span>
         </div>
+
+        <p className="mt-3.5 text-[12.5px] leading-[1.6] text-text-muted">
+          {friendly?.summary ?? model.description}
+        </p>
       </div>
 
-      <div className="mt-2.5 space-y-1 border-t border-border-subtle/70 pt-2.5">
-        {model.files.map((file) => (
-          <div key={file.filename} className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <FileCheck2 className="size-2.5 shrink-0 text-text-muted/70" />
-            <span className="min-w-0 max-w-full truncate font-mono text-[8.5px] text-text-primary/80">
-              {file.filename}
-            </span>
-            <span className="tabular shrink-0 text-[8px] text-text-muted/75">
-              {formatBytes(file.sizeBytes)}
-            </span>
-            <span
-              title={`SHA-256 ${file.sha256}`}
-              className="tabular shrink-0 rounded border border-border-subtle bg-bg-primary/35 px-1 py-px font-mono text-[7px] text-text-muted"
-            >
-              sha256:{file.sha256.slice(0, 10)}…
-            </span>
-            {state.status === "installed" ? (
-              state.verified ? (
-                <span className="flex items-center gap-1 text-[7.5px] text-accent-primary">
-                  <BadgeCheck className="size-2.5" /> verified
-                </span>
-              ) : (
-                <Pill tone="warning" className="px-1.5 py-0">
-                  hash unverified
-                </Pill>
-              )
-            ) : (
-              <Pill tone="outline" className="px-1.5 py-0">
-                {state.status === "downloading"
-                  ? `${Math.round(state.progress)}% fetched`
-                  : "remote"}
-              </Pill>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {state.status === "downloading" && (
-        <div className="mt-2.5 rounded-[6px] border border-amber-500/25 bg-amber-500/[0.055] p-2.5">
-          <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-[8.5px]">
+      {isDownloading && (
+        <div className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-3">
+          <div className="mb-1.5 flex items-center justify-between text-[11.5px]">
             <span className="flex items-center gap-1.5 font-medium text-text-primary">
-              <Loader2 className="size-2.5 animate-spin text-amber-600 dark:text-amber-300" />
-              Fetching {primaryFile.filename}
+              <Loader2 className="size-3.5 animate-spin text-amber-400" aria-hidden="true" />
+              Downloading…
             </span>
             <span className="tabular text-text-muted">
-              {Math.round(state.progress)}% · {formatBytes((size * state.progress) / 100)} /{" "}
-              {formatBytes(size)} · {model.speedMbps || 42.6} MB/s
+              {Math.round(model.progress)}% · {formatBytes((size * model.progress) / 100)}
             </span>
           </div>
           <ProgressBar
-            value={state.progress}
+            value={model.progress}
             label={`${model.name} download progress`}
             size="xs"
             tone="warning"
@@ -281,772 +274,447 @@ function ModelCard({
         </div>
       )}
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <Pill tone="outline" className="gap-1">
-          <Zap className="size-2.5" />
-          {model.accelerator}
-        </Pill>
-        <Pill tone="outline" className="gap-1">
-          <MemoryStick className="size-2.5" />
-          {model.minRamGb} GB RAM min
-        </Pill>
-        <span className="tabular text-[8px] text-text-muted/65">
-          {model.files.length} {model.files.length === 1 ? "artifact" : "artifacts"} ·{" "}
-          {formatBytes(size)}
+      <div className="mt-5 flex items-center justify-between gap-2 border-t border-[var(--glass-border)] pt-3.5">
+        <span className="flex items-center gap-1.5 text-[11px] text-text-muted">
+          <Cpu className="size-3.5 text-accent-primary/80" aria-hidden="true" />
+          <span>{model.accelerator.split("/")[0]?.trim() || "Local GPU"}</span>
+          <span className="opacity-40">·</span>
+          <span>{model.minRamGb} GB+ RAM</span>
         </span>
 
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          {state.status === "available" && (
+        <div className="flex items-center gap-1.5">
+          {model.status === "available" && (
             <Button
               variant="primary"
-              size="xs"
-              leading={<Download className="size-3" />}
+              size="sm"
+              leading={<Download className="size-3.5" />}
               onClick={onDownload}
             >
               Download
             </Button>
           )}
-          {state.status === "downloading" && (
+          {isDownloading && (
+            <Button variant="secondary" size="sm" onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+          {isInstalled && !selected && (
             <Button
               variant="secondary"
-              size="xs"
-              leading={<Download className="size-3" />}
-              onClick={onDownload}
-              disabled
-            >
-              Downloading…
-            </Button>
-          )}
-          {state.status === "installed" && (
-            <Button
-              variant={state.verified ? "ghost" : "primary"}
-              size="xs"
-              leading={
-                verifying ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <ShieldCheck className="size-3" />
-                )
-              }
-              onClick={onVerify}
-              disabled={verifying}
-            >
-              {verifying ? "Hashing…" : state.verified ? "Re-verify" : "Verify SHA-256"}
-            </Button>
-          )}
-          {synthesis && (
-            <Button
-              variant={selected ? "secondary" : "outline"}
-              size="xs"
-              leading={<Sparkles className="size-3" />}
+              size="sm"
+              leading={<Sparkles className="size-3.5" />}
               onClick={onPrefer}
-              disabled={selected || state.status !== "installed"}
             >
-              {selected ? "In use" : "Set default"}
+              Set Active
             </Button>
+          )}
+          {isInstalled && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={busyDelete}
+              aria-label={`Remove ${model.name}`}
+              title="Remove downloaded model from disk"
+              className="flex size-8 items-center justify-center rounded-xl border border-transparent text-text-muted transition hover:border-recording-pulse/30 hover:bg-recording-pulse/10 hover:text-recording-pulse disabled:opacity-40"
+            >
+              {busyDelete ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Trash2 className="size-3.5" aria-hidden="true" />
+              )}
+            </button>
           )}
         </div>
       </div>
-
-      {!requireSha && !state.verified && state.status === "installed" && (
-        <p className="mt-2 flex items-center gap-1.5 rounded-[5px] border border-recording-pulse/25 bg-recording-pulse/[0.05] px-2 py-1 text-[8px] text-recording-pulse">
-          <WifiOff className="size-2.5" />
-          Load will fall back to hash verification because the app-level gate is disabled.
-        </p>
-      )}
     </article>
   );
+}
+
+function demoCatalogInitial(): CatalogItem[] {
+  return DEMO_MODELS.map((m) => ({
+    id: m.id,
+    name: formatModelDisplayName(m.id),
+    roleLabel: m.role,
+    isSynthesis: m.role.toLowerCase().includes("synthesis"),
+    repo: m.repo,
+    description: m.description,
+    files: m.files,
+    accelerator: m.accelerator,
+    minRamGb: m.minRamGb,
+    recommended: m.recommended,
+    status: m.status === "downloading" ? "available" : m.status,
+    progress: m.status === "installed" ? 100 : 0,
+    installedBytes: m.status === "installed" ? totalBytes(m.files) : 0,
+  }));
 }
 
 export function ModelManager() {
   const pushToast = useWorkspaceStore((state) => state.pushToast);
   const selectedModelId = useWorkspaceStore((state) => state.selectedModelId);
   const setSelectedModel = useWorkspaceStore((state) => state.setSelectedModel);
+  const selectedAsrModelId = useWorkspaceStore((state) => state.selectedAsrModelId);
+  const setSelectedAsrModel = useWorkspaceStore((state) => state.setSelectedAsrModel);
 
-  const [models, setModels] = useState<Record<string, RuntimeState>>(initialState);
-  const [filter, setFilter] = useState<ModelFilter>("all");
-  const [verifying, setVerifying] = useState<Record<string, boolean>>({});
-  const [requireSha, setRequireSha] = useState(true);
-  const [meters, setMeters] = useState<Record<string, number>>({
-    ...DEMO_HARDWARE.usage,
-  });
-  const downloadTimers = useRef<Map<string, number>>(new Map());
-  const completionTimeouts = useRef<Set<number>>(new Set());
-  const completed = useRef<Set<string>>(new Set());
-  const hostDownloads = useRef<Set<string>>(new Set());
-  const autoStarted = useRef(false);
+  const [native, setNative] = useState(false);
+  const [catalog, setCatalog] = useState<CatalogItem[]>(demoCatalogInitial);
+  const [hardware, setHardware] = useState<HardwareProfileRecord | null>(null);
+  const [modelsDir, setModelsDir] = useState<string>(
+    `~/Library/Application Support/${BRAND.storageDirName}/models/`,
+  );
+  const [deletingIds, setDeletingIds] = useState<Record<string, boolean>>({});
+  const [exportingDiag, setExportingDiag] = useState(false);
+  const inFlightDownloads = useRef<Set<string>>(new Set());
 
-  useEffect(() => {
+  const refreshHub = useCallback(async () => {
     if (!isTauri()) return;
-    void listModels().then((hub) => {
-      if (!hub) return;
-      setModels((previous) => {
-        const next = { ...previous };
-        for (const status of hub.models) {
-          const current = next[status.artifact.id];
-          next[status.artifact.id] = {
-            status: status.installed ? "installed" : "available",
-            progress: status.installed ? 100 : 0,
-            verified: status.installed,
-            enabled: current?.enabled ?? status.installed,
-          };
-        }
-        return next;
+    const [hub, brandCfg] = await Promise.all([listModels(), getBrandConfig()]);
+    if (brandCfg?.modelsDir) {
+      setModelsDir(brandCfg.modelsDir);
+    }
+    if (!hub) return;
+    setHardware(hub.hardware);
+    setCatalog((prev) => {
+      const prevMap = new Map(prev.map((item) => [item.id, item]));
+      return hub.models.map((entry) => {
+        const current = prevMap.get(entry.artifact.id);
+        const isDownloading = inFlightDownloads.current.has(entry.artifact.id);
+        const { label, isSynthesis } = roleLabelFor(entry.artifact.role);
+        return {
+          id: entry.artifact.id,
+          name: formatModelDisplayName(entry.artifact.id),
+          roleLabel: label,
+          isSynthesis,
+          repo: entry.artifact.repo,
+          description: entry.artifact.description,
+          files: entry.artifact.files,
+          accelerator: entry.artifact.accelerator,
+          minRamGb: entry.artifact.minRamGb,
+          recommended: entry.artifact.recommended,
+          status: entry.installed ? "installed" : isDownloading ? "downloading" : "available",
+          progress: entry.installed ? 100 : isDownloading ? (current?.progress ?? 2) : 0,
+          installedBytes: entry.installedBytes,
+        };
       });
     });
   }, []);
+
+  useEffect(() => {
+    const hosted = isTauri();
+    setNative(hosted);
+    if (hosted) {
+      void refreshHub();
+    }
+  }, [refreshHub]);
 
   useModelDownloadProgress((payload) => {
-    setModels((previous) => {
-      const current = previous[payload.artifactId];
-      if (!current) return previous;
-      const complete = payload.phase === "complete";
-      return {
-        ...previous,
-        [payload.artifactId]: {
-          ...current,
+    setCatalog((previous) =>
+      previous.map((item) => {
+        if (item.id !== payload.artifactId) return item;
+        const complete = payload.phase === "complete";
+        return {
+          ...item,
           status: complete ? "installed" : "downloading",
           progress: payload.percent,
-          verified: complete,
-        },
-      };
-    });
+          installedBytes: complete ? totalBytes(item.files) : payload.downloadedBytes,
+        };
+      }),
+    );
   });
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setMeters((previous) => ({
-        cpu: Math.min(0.86, Math.max(0.07, previous.cpu + (Math.random() - 0.5) * 0.07)),
-        ram: Math.min(0.9, Math.max(0.24, previous.ram + (Math.random() - 0.5) * 0.025)),
-        gpu: Math.min(0.82, Math.max(0.03, previous.gpu + (Math.random() - 0.5) * 0.09)),
-        npu: Math.min(0.78, Math.max(0.01, previous.npu + (Math.random() - 0.5) * 0.08)),
-      }));
-    }, 1_500);
-    return () => window.clearInterval(timer);
-  }, []);
+  const handleDownload = async (item: CatalogItem) => {
+    if (inFlightDownloads.current.has(item.id)) return;
+    const bytes = totalBytes(item.files);
 
-  useEffect(() => {
-    const timers = downloadTimers.current;
-    const timeouts = completionTimeouts.current;
-    return () => {
-      timers.forEach((timer) => window.clearInterval(timer));
-      timers.clear();
-      timeouts.forEach((timeout) => window.clearTimeout(timeout));
-      timeouts.clear();
-    };
-  }, []);
-
-  const startDownload = (model: DemoModel) => {
-    if (downloadTimers.current.has(model.id) || hostDownloads.current.has(model.id)) return;
-    const size = totalBytes(model);
-    setModels((previous) => ({
-      ...previous,
-      [model.id]: {
-        ...previous[model.id],
-        status: "downloading",
-        progress: previous[model.id].progress >= 100 ? 0 : previous[model.id].progress,
-      },
-    }));
-    pushToast(
-      `Fetching ${model.name}`,
-      `${model.files[0]?.filename ?? "artifact"} · ${formatBytes(size)} · SHA-256 pinned`,
-      "accent",
-    );
-
-    if (isTauri()) {
-      hostDownloads.current.add(model.id);
-      void downloadModel(model.id).then((reports) => {
-        hostDownloads.current.delete(model.id);
-        if (!reports) {
-          setModels((previous) => ({
-            ...previous,
-            [model.id]: {
-              ...previous[model.id],
-              status: "available",
-              progress: 0,
-              verified: false,
-            },
-          }));
-          pushToast(
-            `${model.name} download failed`,
-            "No bytes were loaded. Check the local model cache and retry.",
-            "danger",
-          );
-          return;
-        }
-        setModels((previous) => ({
-          ...previous,
-          [model.id]: {
-            ...previous[model.id],
-            status: "installed",
-            progress: 100,
-            enabled: true,
-            verified: true,
-          },
-        }));
-        pushToast(
-          `${model.name} installed`,
-          `${formatBytes(reports.reduce((sum, report) => sum + report.bytes, 0))} verified with SHA-256`,
-          "success",
-        );
-      });
+    if (!native) {
+      setCatalog((curr) =>
+        curr.map((m) =>
+          m.id === item.id
+            ? { ...m, status: "installed", progress: 100, installedBytes: bytes }
+            : m,
+        ),
+      );
+      pushToast(`${item.name} ready`, formatBytes(bytes), "success");
       return;
     }
 
-    const timer = window.setInterval(() => {
-      setModels((previous) => {
-        const current = previous[model.id];
-        if (!current || current.status !== "downloading") {
-          window.clearInterval(timer);
-          downloadTimers.current.delete(model.id);
-          return previous;
-        }
-        const progress = Math.min(100, current.progress + 4.4);
-        if (progress >= 100) {
-          window.clearInterval(timer);
-          downloadTimers.current.delete(model.id);
-          if (!completed.current.has(model.id)) {
-            completed.current.add(model.id);
-            const timeout = window.setTimeout(() => {
-              pushToast(
-                `${model.name} installed`,
-                `${formatBytes(size)} written to the local model cache · verify the SHA-256 before load`,
-                "success",
-              );
-            }, 0);
-            completionTimeouts.current.add(timeout);
-          }
-          return {
-            ...previous,
-            [model.id]: {
-              ...current,
-              status: "installed",
-              progress: 100,
-              enabled: true,
-              verified: false,
-            },
-          };
-        }
-        return { ...previous, [model.id]: { ...current, progress } };
-      });
-    }, 420);
+    inFlightDownloads.current.add(item.id);
+    setCatalog((curr) =>
+      curr.map((m) => (m.id === item.id ? { ...m, status: "downloading", progress: 1 } : m)),
+    );
+    pushToast(`Downloading ${item.name}`, `${formatBytes(bytes)} · verified locally`, "accent");
 
-    downloadTimers.current.set(model.id, timer);
+    try {
+      const reports = await downloadModel(item.id);
+      inFlightDownloads.current.delete(item.id);
+      await refreshHub();
+      const verifiedBytes = reports?.reduce((sum, r) => sum + r.bytes, 0) ?? bytes;
+      pushToast(`${item.name} installed`, `${formatBytes(verifiedBytes)} ready for use`, "success");
+    } catch (error) {
+      inFlightDownloads.current.delete(item.id);
+      await refreshHub();
+      pushToast(`${item.name} download failed`, formatHostError(error), "danger");
+    }
   };
 
-  useEffect(() => {
-    if (autoStarted.current || isTauri()) return;
-    autoStarted.current = true;
-    for (const model of DEMO_MODELS) {
-      if (model.status === "downloading") startDownload(model);
+  const handleCancelDownload = async (item: CatalogItem) => {
+    if (!native) return;
+    try {
+      await cancelModelDownload(item.id);
+      inFlightDownloads.current.delete(item.id);
+      await refreshHub();
+      pushToast(`Paused ${item.name}`, "Partial download kept to resume later.", "default");
+    } catch (error) {
+      pushToast(`Could not cancel ${item.name}`, formatHostError(error), "danger");
     }
-    // The browser preview resumes the pinned in-flight artifact once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  };
 
-  const verifyModel = (model: DemoModel) => {
-    if (verifying[model.id]) return;
-    setVerifying((previous) => ({ ...previous, [model.id]: true }));
-    const timeout = window.setTimeout(() => {
-      setVerifying((previous) => ({ ...previous, [model.id]: false }));
-      setModels((previous) => ({
-        ...previous,
-        [model.id]: { ...previous[model.id], verified: true, status: "installed" },
-      }));
-      pushToast(
-        `${model.name} verified`,
-        `SHA-256 matches ${model.files[0]?.sha256.slice(0, 20) ?? "manifest"}… · loaded locally`,
-        "success",
+  const handleDelete = async (item: CatalogItem) => {
+    if (deletingIds[item.id]) return;
+    if (!native) {
+      setCatalog((curr) =>
+        curr.map((m) =>
+          m.id === item.id ? { ...m, status: "available", progress: 0, installedBytes: 0 } : m,
+        ),
       );
-    }, 950);
-    completionTimeouts.current.add(timeout);
-  };
-
-  const toggleModel = (model: DemoModel, enabled: boolean) => {
-    setModels((previous) => ({
-      ...previous,
-      [model.id]: { ...previous[model.id], enabled },
-    }));
-    pushToast(
-      `${model.name} ${enabled ? "enabled" : "disabled"}`,
-      enabled
-        ? "Resident in the local LiteRT runtime"
-        : "Unloaded from memory · artifact kept on disk",
-      enabled ? "success" : "default",
-    );
-  };
-
-  const preferModel = (model: DemoModel) => {
-    if (selectedModelId === model.id) return;
-    setSelectedModel(model.id);
-    pushToast(
-      `${model.name} is now the synthesis default`,
-      "Applied to future local synthesis runs · nothing leaves the device",
-      "accent",
-    );
-  };
-
-  const counts = useMemo(() => {
-    const result: Record<ModelFilter, number> = {
-      all: DEMO_MODELS.length,
-      installed: 0,
-      downloading: 0,
-      available: 0,
-    };
-    for (const model of DEMO_MODELS) {
-      const status = models[model.id]?.status ?? model.status;
-      result[status] += 1;
+      pushToast(`Removed ${item.name}`, "Preview state reset.", "default");
+      return;
     }
-    return result;
-  }, [models]);
 
-  const visibleModels = DEMO_MODELS.filter((model) => {
-    const status = models[model.id]?.status ?? model.status;
-    return filter === "all" || status === filter;
-  });
+    setDeletingIds((curr) => ({ ...curr, [item.id]: true }));
+    try {
+      const freed = await deleteModel(item.id);
+      await refreshHub();
+      pushToast(
+        `Removed ${item.name}`,
+        `Freed ${formatBytes(freed ?? totalBytes(item.files))} on disk.`,
+        "default",
+      );
+    } catch (error) {
+      pushToast(`Could not remove ${item.name}`, formatHostError(error), "danger");
+    } finally {
+      setDeletingIds((curr) => ({ ...curr, [item.id]: false }));
+    }
+  };
 
-  const installedBytes = DEMO_MODELS.reduce(
-    (sum, model) => (models[model.id]?.status === "installed" ? sum + totalBytes(model) : sum),
-    0,
+  const handleExportDiagnostics = async () => {
+    if (!native || exportingDiag) return;
+    setExportingDiag(true);
+    try {
+      const outcome = await exportDiagnostics();
+      if (outcome) {
+        pushToast(
+          "Diagnostics exported",
+          `${outcome.path} (${outcome.logLines} log entries)`,
+          "success",
+        );
+      }
+    } catch (error) {
+      pushToast("Diagnostics export failed", formatHostError(error), "danger");
+    } finally {
+      setExportingDiag(false);
+    }
+  };
+
+  const speechModels = useMemo(
+    () =>
+      catalog
+        .filter((item) => !item.isSynthesis)
+        .sort((a, b) => (DISPLAY_ORDER[a.id] ?? 99) - (DISPLAY_ORDER[b.id] ?? 99)),
+    [catalog],
   );
-  const installedCount = DEMO_MODELS.filter(
-    (model) => models[model.id]?.status === "installed",
-  ).length;
-  const cachePath = `~/Library/Application Support/${BRAND.storageDirName}/models/`;
-  const diskPercent = Math.min(100, (installedBytes / (5 * 1024 ** 3)) * 100);
+  const synthesisModels = useMemo(
+    () =>
+      catalog
+        .filter((item) => item.isSynthesis)
+        .sort((a, b) => (DISPLAY_ORDER[a.id] ?? 99) - (DISPLAY_ORDER[b.id] ?? 99)),
+    [catalog],
+  );
+  const installedCount = useMemo(
+    () => catalog.filter((item) => item.status === "installed").length,
+    [catalog],
+  );
+  const installedBytes = useMemo(
+    () =>
+      catalog.reduce(
+        (sum, item) =>
+          item.status === "installed" ? sum + (item.installedBytes || totalBytes(item.files)) : sum,
+        0,
+      ),
+    [catalog],
+  );
+
+  const ramDisplay = hardware
+    ? hardware.ramGb > 0
+      ? `${hardware.ramGb} GB RAM`
+      : "Local RAM"
+    : `${DEMO_HARDWARE.ramGb} GB RAM`;
+  const accelDisplay = hardware ? hardware.accelerator : "Metal GPU";
 
   return (
-    <AppShell>
-      <div className="sticky top-0 z-20 border-b border-border-subtle bg-bg-primary/85 backdrop-blur-md">
-        <div className="mx-auto flex h-12 max-w-[1280px] items-center gap-2.5 px-5 lg:px-7">
-          <div className="flex min-w-0 items-center gap-1.5 text-[10px] text-text-muted">
-            <HardDrive className="size-3 text-text-muted/70" />
-            <span>Local vault</span>
-            <span className="text-text-muted/40">/</span>
-            <span className="text-text-primary">Models</span>
-          </div>
-          <Pill
-            tone="accent"
-            className="ml-1 hidden gap-1 sm:inline-flex"
-            icon={<ShieldCheck className="size-2.5" />}
-          >
-            Air-gap enforced
-          </Pill>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="tabular hidden text-[9px] text-text-muted sm:inline">
-              {installedCount}/{DEMO_MODELS.length} pinned · {formatBytes(installedBytes)}
-            </span>
-            <Pill tone="neutral" className="gap-1" icon={<Cpu className="size-2.5" />}>
-              LiteRT
-            </Pill>
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-auto max-w-[1280px] px-5 pb-16 pt-5 lg:px-7">
-        <section className="relative overflow-hidden rounded-[12px] border border-border-subtle bg-[radial-gradient(110%_130%_at_0%_0%,color-mix(in_oklch,var(--brand-accent-secondary)_11%,transparent),transparent_58%)] p-5 lg:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-5">
-            <div className="max-w-[640px]">
-              <div className="flex flex-wrap items-center gap-2">
-                <Pill tone="neutral" className="gap-1.5">
-                  <span className="size-1 rounded-full bg-accent-primary" />
-                  {BRAND.productName} · local inference
-                </Pill>
-                <Pill tone="outline" icon={<LockKeyhole className="size-2.5" />}>
-                  no egress
-                </Pill>
-                <Pill tone="outline">QAT INT4 / INT8</Pill>
-              </div>
-              <h1 className="mt-3 text-[26px] font-semibold leading-[1.1] tracking-[-0.04em] text-text-primary sm:text-[30px]">
-                Models that never phone home.
-              </h1>
-              <p className="mt-2 max-w-[560px] text-[12px] leading-6 text-text-muted">
-                Pinned artifacts power speech and synthesis on this machine. Diarization runs on the
-                CPU after capture with no download. Downloads are explicit, hashed, and never load
-                before verification.
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <Button
-                  variant="primary"
-                  size="md"
-                  leading={<Upload className="size-3.5" />}
-                  onClick={() =>
-                    pushToast(
-                      "Manual artifact import",
-                      "Drop a .litertlm file into the vault · hashes are checked before the runtime sees it",
-                      "accent",
-                    )
-                  }
-                >
-                  Import artifact
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="md"
-                  leading={<RefreshCw className="size-3.5" />}
-                  onClick={() =>
-                    pushToast(
-                      "Manifest re-checked",
-                      `${DEMO_MODELS.length} pinned artifacts · SHA-256 manifest unchanged · offline`,
-                      "success",
-                    )
-                  }
-                >
-                  Re-check manifest
-                </Button>
-                <span className="ml-1 flex items-center gap-1.5 text-[9px] text-text-muted">
-                  <WifiOff className="size-3" />
-                  network disabled at the process boundary
-                </span>
-              </div>
-            </div>
-
-            <div className="hidden w-[244px] shrink-0 rounded-brand border border-border-subtle bg-bg-primary/45 p-3.5 backdrop-blur-sm sm:block">
-              <p className="flex items-center gap-1.5 text-[8.5px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-                <PackageCheck className="size-3 text-accent-primary" />
-                Local footprint
-              </p>
-              <p className="tabular mt-1.5 text-[24px] font-medium leading-none tracking-[-0.03em] text-text-primary">
-                {formatBytes(installedBytes)}
-              </p>
-              <p className="mt-1 text-[9px] text-text-muted">
-                {installedCount} installed · {counts.downloading} in flight
-              </p>
-              <div className="mt-3 space-y-1.5 border-t border-border-subtle pt-2.5 text-[8.5px]">
-                <p className="flex items-center justify-between gap-2">
-                  <span className="text-text-muted">Runtime</span>
-                  <span className="font-mono text-text-primary/80">LiteRT · Metal</span>
-                </p>
-                <p className="flex items-center justify-between gap-2">
-                  <span className="text-text-muted">Hardware tier</span>
-                  <span className="font-mono text-text-primary/80">{DEMO_HARDWARE.tier}</span>
-                </p>
-                <p className="flex items-center justify-between gap-2">
-                  <span className="text-text-muted">Hash gate</span>
-                  <span
-                    className={cn(
-                      "font-mono",
-                      requireSha ? "text-accent-primary" : "text-recording-pulse",
-                    )}
-                  >
-                    {requireSha ? "required" : "disabled"}
-                  </span>
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section
-          aria-label="Hardware meters"
-          className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-        >
-          <MeterCard
-            label="CPU"
-            value={DEMO_HARDWARE.cpu}
-            detail="8 cores · 6 performance + 2 efficiency"
-            meter={meters.cpu}
-            icon={Cpu}
-            color={ACCELERATOR_COLORS.cpu}
-          />
-          <MeterCard
-            label="Memory"
-            value={`${Math.round(DEMO_HARDWARE.ramGb * meters.ram)} / ${DEMO_HARDWARE.ramGb} GB`}
-            detail="Unified memory · Metal shared allocation"
-            meter={meters.ram}
-            icon={MemoryStick}
-            color={ACCELERATOR_COLORS.ram}
-          />
-          <MeterCard
-            label="GPU"
-            value={DEMO_HARDWARE.gpu}
-            detail="Metal 3 · 16 cores"
-            meter={meters.gpu}
-            icon={Gauge}
-            color={ACCELERATOR_COLORS.gpu}
-          />
-          <MeterCard
-            label="Neural Engine"
-            value={DEMO_HARDWARE.npu}
-            detail="Core ML · ANE delegate"
-            meter={meters.npu}
-            icon={Zap}
-            color={ACCELERATOR_COLORS.npu}
-          />
-        </section>
-
-        <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_332px]">
-          <section aria-labelledby="artifacts-heading" className="panel overflow-hidden">
-            <header className="flex flex-wrap items-center gap-3 border-b border-border-subtle px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <h2
-                  id="artifacts-heading"
-                  className="flex items-center gap-1.5 text-[12px] font-semibold text-text-primary"
-                >
-                  <Boxes className="size-3.5 text-text-muted" />
-                  Local artifacts
-                </h2>
-                <p className="mt-0.5 text-[9px] text-text-muted">
-                  {counts.installed} installed · {counts.downloading} downloading ·{" "}
-                  {counts.available} available · {DEMO_MODELS.length} total
-                </p>
-              </div>
-              <div
-                role="group"
-                aria-label="Filter models"
-                className="flex h-6 items-center rounded-[6px] border border-border-subtle bg-bg-primary/40 p-0.5"
-              >
-                {FILTERS.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={filter === option.id}
-                    onClick={() => setFilter(option.id)}
-                    className={cn(
-                      "flex h-5 items-center gap-1 rounded-[4px] px-2 text-[9px] font-medium transition",
-                      filter === option.id
-                        ? "bg-bg-elevated text-text-primary shadow-sm"
-                        : "text-text-muted hover:text-text-primary",
-                    )}
-                  >
-                    {option.label}
-                    <span className="tabular text-[7.5px] opacity-60">{counts[option.id]}</span>
-                  </button>
-                ))}
-              </div>
-            </header>
-
-            <div className="divide-y divide-border-subtle/70">
-              {visibleModels.length === 0 ? (
-                <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
-                  <PackageCheck className="mb-3 size-6 text-text-muted/50" />
-                  <p className="text-[11px] font-medium text-text-primary">
-                    No artifacts in this state
-                  </p>
-                  <p className="mt-1 text-[9.5px] text-text-muted">
-                    Switch the filter or fetch a pinned artifact from the local cache.
-                  </p>
-                </div>
-              ) : (
-                visibleModels.map((model) => (
-                  <ModelCard
-                    key={model.id}
-                    model={model}
-                    state={models[model.id]}
-                    selected={selectedModelId === model.id}
-                    verifying={Boolean(verifying[model.id])}
-                    requireSha={requireSha}
-                    onDownload={() => startDownload(model)}
-                    onVerify={() => verifyModel(model)}
-                    onToggle={(enabled) => toggleModel(model, enabled)}
-                    onPrefer={() => preferModel(model)}
-                  />
-                ))
-              )}
-            </div>
-
-            <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle bg-bg-primary/25 px-4 py-2 text-[8px] text-text-muted/70">
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck className="size-2.5 text-accent-primary" />
-                Every artifact is hashed before it reaches the runtime.
+    <AppShell rightMode="none">
+      <div className="mx-auto w-full max-w-[1040px] px-5 pb-16 pt-8 sm:px-8 lg:pt-10">
+        {/* Clean Glass Header */}
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Pill tone="accent" icon={<ShieldCheck className="size-3" />}>
+                100% On-Device AI
+              </Pill>
+              <span className="tabular text-xs text-text-muted">
+                {installedCount} of {catalog.length} installed · {formatBytes(installedBytes)}
               </span>
-              <span className="font-mono">sha256 manifest · local cache</span>
-            </footer>
-          </section>
+            </div>
+            <h1 className="mt-2.5 text-[28px] font-semibold tracking-[-0.035em] text-text-primary sm:text-[32px]">
+              AI Models
+            </h1>
+            <p className="mt-1.5 max-w-[540px] text-[13.5px] leading-6 text-text-muted">
+              Download once to transcribe audio and generate grounded meeting summaries completely
+              offline.
+            </p>
+          </div>
 
-          <aside className="min-w-0 space-y-3">
-            <section aria-labelledby="host-heading" className="panel p-4">
-              <div className="flex items-center justify-between gap-2">
-                <h2
-                  id="host-heading"
-                  className="flex items-center gap-1.5 text-[12px] font-semibold text-text-primary"
-                >
-                  <Laptop className="size-3.5 text-text-muted" />
-                  Host
-                </h2>
-                <Pill tone="accent">{DEMO_HARDWARE.tier} tier</Pill>
-              </div>
-              <p className="mt-2 text-[12px] font-medium text-text-primary">{DEMO_HARDWARE.host}</p>
-              <p className="text-[9px] text-text-muted">{DEMO_HARDWARE.os}</p>
-              <dl className="mt-2.5 space-y-1.5 border-t border-border-subtle pt-2.5 text-[8.5px]">
-                {[
-                  ["CPU", DEMO_HARDWARE.cpu],
-                  ["GPU", DEMO_HARDWARE.gpu],
-                  ["Neural Engine", DEMO_HARDWARE.npu],
-                  ["Memory", `${DEMO_HARDWARE.ramGb} GB unified`],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex items-start justify-between gap-3">
-                    <dt className="text-text-muted">{label}</dt>
-                    <dd className="text-right font-mono text-[8px] leading-4 text-text-primary/80">
-                      {value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {DEMO_HARDWARE.accelerators.map((accelerator) => (
-                  <Pill key={accelerator} tone="outline">
-                    {accelerator}
-                  </Pill>
-                ))}
-              </div>
-            </section>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="glass-subtle hidden items-center gap-2 rounded-xl px-3 py-1.5 text-xs text-text-muted sm:inline-flex">
+              <Cpu className="size-3.5 text-accent-primary" aria-hidden="true" />
+              <span className="font-medium text-text-primary">{accelDisplay}</span>
+              <span className="opacity-40">·</span>
+              <span>{ramDisplay}</span>
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              leading={<RefreshCw className="size-3.5" />}
+              onClick={() => {
+                void refreshHub().then(() => {
+                  pushToast("Models refreshed", "Synced with local model folder.", "success");
+                });
+              }}
+            >
+              Refresh
+            </Button>
+          </div>
+        </header>
 
-            <section aria-labelledby="storage-heading" className="panel p-4">
-              <div className="flex items-center justify-between gap-2">
-                <h2
-                  id="storage-heading"
-                  className="flex items-center gap-1.5 text-[12px] font-semibold text-text-primary"
-                >
-                  <HardDrive className="size-3.5 text-text-muted" />
-                  Model cache
-                </h2>
-                <span className="tabular text-[9px] text-text-muted">
-                  {Math.round(diskPercent)}% of 5 GB
-                </span>
-              </div>
-              <p className="tabular mt-2 text-[20px] font-medium leading-none tracking-[-0.03em] text-text-primary">
-                {formatBytes(installedBytes)}
+        {/* Section 1: Speech Recognition */}
+        <section aria-labelledby="speech-models-heading" className="mt-8">
+          <div className="mb-3.5 flex items-center justify-between">
+            <div>
+              <h2
+                id="speech-models-heading"
+                className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] text-text-primary"
+              >
+                <AudioLines className="size-4 text-accent-primary" aria-hidden="true" />
+                Voice Recognition
+              </h2>
+              <p className="mt-0.5 text-xs text-text-muted">
+                Converts live microphone and system audio into timestamped transcripts.
               </p>
-              <ProgressBar
-                value={diskPercent}
-                label="Model cache usage"
-                size="sm"
-                className="mt-2.5"
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            {speechModels.map((model) => (
+              <GlassModelCard
+                key={model.id}
+                model={model}
+                selected={selectedAsrModelId === model.id}
+                busyDelete={Boolean(deletingIds[model.id])}
+                onDownload={() => void handleDownload(model)}
+                onCancel={() => void handleCancelDownload(model)}
+                onDelete={() => void handleDelete(model)}
+                onPrefer={() => {
+                  setSelectedAsrModel(model.id);
+                  pushToast(
+                    `${model.name} set as active voice model`,
+                    "Will be used for new recordings and transcriptions.",
+                    "accent",
+                  );
+                }}
               />
-              <p className="mt-2 break-all font-mono text-[7.5px] leading-4 text-text-muted/70">
-                {cachePath}
+            ))}
+          </div>
+        </section>
+
+        {/* Section 2: Meeting Intelligence */}
+        <section aria-labelledby="synthesis-models-heading" className="mt-8">
+          <div className="mb-3.5 flex items-center justify-between">
+            <div>
+              <h2
+                id="synthesis-models-heading"
+                className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] text-text-primary"
+              >
+                <Sparkles className="size-4 text-accent-secondary" aria-hidden="true" />
+                Meeting Summaries &amp; Action Items
+              </h2>
+              <p className="mt-0.5 text-xs text-text-muted">
+                Synthesizes notes, decisions, and tasks with clickable source citations.
               </p>
-              <p className="mt-1.5 text-[8.5px] leading-4 text-text-muted">
-                {installedCount} installed artifacts · {counts.downloading} download in progress ·
-                cache is prunable without touching memos
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            {synthesisModels.map((model) => (
+              <GlassModelCard
+                key={model.id}
+                model={model}
+                selected={selectedModelId === model.id}
+                busyDelete={Boolean(deletingIds[model.id])}
+                onDownload={() => void handleDownload(model)}
+                onCancel={() => void handleCancelDownload(model)}
+                onDelete={() => void handleDelete(model)}
+                onPrefer={() => {
+                  setSelectedModel(model.id);
+                  pushToast(
+                    `${model.name} set as active summary model`,
+                    "Will be used for new meeting syntheses.",
+                    "accent",
+                  );
+                }}
+              />
+            ))}
+          </div>
+        </section>
+
+        {/* Collapsible Advanced & Storage Drawer */}
+        <details className="panel group mt-8 overflow-hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-3.5 text-xs font-medium text-text-muted transition hover:text-text-primary">
+            <span className="flex items-center gap-2">
+              <HardDrive className="size-3.5 text-accent-primary" aria-hidden="true" />
+              <span>Storage location &amp; system diagnostics</span>
+              <span className="tabular text-text-muted/70">({formatBytes(installedBytes)})</span>
+            </span>
+            <ChevronDown
+              className="size-4 transition-transform duration-200 group-open:rotate-180"
+              aria-hidden="true"
+            />
+          </summary>
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-5 py-4 text-xs">
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-1.5 font-medium text-text-primary">
+                <FolderOpen className="size-3.5 text-text-muted" aria-hidden="true" />
+                Local model directory
               </p>
-            </section>
-
-            <section aria-labelledby="airgap-heading" className="panel overflow-hidden">
-              <header className="border-b border-border-subtle px-4 py-3">
-                <h2
-                  id="airgap-heading"
-                  className="flex items-center gap-1.5 text-[12px] font-semibold text-text-primary"
-                >
-                  <ShieldCheck className="size-3.5 text-accent-primary" />
-                  Integrity &amp; air gap
-                </h2>
-                <p className="mt-0.5 text-[8.5px] text-text-muted">
-                  {BRAND.productName} fails closed, not open.
-                </p>
-              </header>
-              <div className="divide-y divide-border-subtle/70">
-                {[
-                  {
-                    id: "offline",
-                    label: "Enforce offline mode",
-                    detail: "Process-level egress block · locked by build policy",
-                    checked: true,
-                    disabled: true,
-                  },
-                  {
-                    id: "digest",
-                    label: "Require SHA-256 before load",
-                    detail: "Reject any artifact whose digest differs from the manifest",
-                    checked: requireSha,
-                    disabled: false,
-                  },
-                  {
-                    id: "metadata",
-                    label: "Allow remote metadata checks",
-                    detail: "Always off · registry metadata ships with the app",
-                    checked: false,
-                    disabled: true,
-                  },
-                  {
-                    id: "meters",
-                    label: "Runtime meters",
-                    detail: "No counters leave the vault",
-                    checked: false,
-                    disabled: true,
-                  },
-                ].map((row) => (
-                  <div key={row.id} className="flex items-center gap-3 px-4 py-2.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[9.5px] font-medium text-text-primary">{row.label}</p>
-                      <p className="mt-0.5 text-[8px] leading-4 text-text-muted">{row.detail}</p>
-                    </div>
-                    <Toggle
-                      checked={row.checked}
-                      disabled={row.disabled}
-                      onChange={(next) => {
-                        setRequireSha(next);
-                        pushToast(
-                          next ? "Hash gate enabled" : "Hash gate disabled",
-                          next
-                            ? "Artifacts must match the pinned SHA-256 manifest before load"
-                            : "The runtime will still verify on load, but the UI gate is off",
-                          next ? "success" : "danger",
-                        );
-                      }}
-                      label={row.label}
-                      size="sm"
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center gap-1.5 border-t border-border-subtle bg-accent-primary/[0.045] px-4 py-2 text-[8px] text-text-muted">
-                <LockKeyhole className="size-2.5 text-accent-primary" />
-                Model downloads are the only network path, and they are explicit.
-              </div>
-            </section>
-
-            <section aria-labelledby="runtime-heading" className="panel p-4">
-              <div className="flex items-center justify-between gap-2">
-                <h2
-                  id="runtime-heading"
-                  className="flex items-center gap-1.5 text-[12px] font-semibold text-text-primary"
-                >
-                  <Cpu className="size-3.5 text-text-muted" />
-                  Runtime
-                </h2>
-                <span className="flex items-center gap-1 text-[8px] text-accent-primary">
-                  <span className="size-1 rounded-full bg-accent-primary" />
-                  ready
-                </span>
-              </div>
-              <dl className="mt-2.5 space-y-1.5 text-[8.5px]">
-                {[
-                  ["Engine", "LiteRT · local"],
-                  ["Delegates", "Metal · XNNPACK · ANE"],
-                  [
-                    "Selected SLM",
-                    DEMO_MODELS.find((m) => m.id === selectedModelId)?.name ?? "none",
-                  ],
-                  ["Streaming latency", "640 ms · ASR"],
-                  ["Verifier", "fail-closed · local"],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex items-start justify-between gap-3">
-                    <dt className="text-text-muted">{label}</dt>
-                    <dd className="max-w-[180px] truncate text-right font-mono text-[8px] text-text-primary/80">
-                      {value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              <div className="mt-2 flex items-center gap-1.5 border-t border-border-subtle pt-2 text-[8px] text-text-muted/70">
-                <Kbd>⌘K</Kbd>
-                switch models from the command palette
-              </div>
-            </section>
-          </aside>
-        </div>
-
-        <footer className="mt-8 flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-4 text-[9px] text-text-muted/70">
-          <span>
-            {BRAND.productName} · {BRAND.licenseType} · {BRAND.modelRegistry.hfBaseUrl}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Sparkles className="size-2.5 text-accent-primary" />
-            Artifacts pinned by SHA-256 · runtime fully local
-          </span>
-        </footer>
+              <p className="mt-1 truncate font-mono text-[11px] text-text-muted">{modelsDir}</p>
+            </div>
+            {native && (
+              <Button
+                variant="outline"
+                size="sm"
+                leading={
+                  exportingDiag ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <FileJson className="size-3.5" />
+                  )
+                }
+                disabled={exportingDiag}
+                onClick={() => void handleExportDiagnostics()}
+              >
+                Export diagnostics
+              </Button>
+            )}
+          </div>
+        </details>
       </div>
     </AppShell>
   );

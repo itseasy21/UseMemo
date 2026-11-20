@@ -5,6 +5,7 @@ members = [
     "crates/memo-audio-capture",
     "crates/memo-diarize",
     "crates/memo-litert-bridge",
+    "crates/memo-llama-worker",
     "crates/memo-mobile-audio",
 ]
 exclude = ["upstream"]

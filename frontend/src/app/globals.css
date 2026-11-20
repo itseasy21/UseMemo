@@ -1,9 +1,76 @@
 @import "tailwindcss";
 @import "../styles/brand-tokens.css";
 
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src:
+    local("Inter"),
+    local("Inter Variable"),
+    url("/fonts/sans-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src:
+    local("JetBrains Mono"),
+    local("JetBrainsMono-Regular"),
+    url("/fonts/mono-latin.woff2") format("woff2");
+}
+
+:root {
+  --in-oklab: ;
+  --in-oklch: ;
+  --glass-surface: color-mix(in oklab, var(--brand-bg-elevated) 72%, transparent);
+  --glass-surface-strong: color-mix(in oklab, var(--brand-bg-elevated) 86%, transparent);
+  --glass-surface-subtle: color-mix(in oklab, var(--brand-bg-elevated) 48%, transparent);
+  --glass-border: color-mix(in oklab, var(--brand-text-primary) 10%, transparent);
+  --glass-border-strong: color-mix(in oklab, var(--brand-text-primary) 16%, transparent);
+  --glass-highlight: inset 0 1px 0 0 color-mix(in oklab, white 65%, transparent);
+  --glass-shadow:
+    0 12px 32px -12px color-mix(in oklab, black 10%, transparent),
+    0 2px 6px -1px color-mix(in oklab, black 5%, transparent);
+  --glass-shadow-lg:
+    0 28px 80px -20px color-mix(in oklab, black 22%, transparent),
+    0 8px 24px -8px color-mix(in oklab, black 10%, transparent);
+}
+
+.dark {
+  --glass-surface: color-mix(in oklab, var(--brand-bg-elevated) 62%, transparent);
+  --glass-surface-strong: color-mix(in oklab, var(--brand-bg-elevated) 82%, transparent);
+  --glass-surface-subtle: color-mix(in oklab, var(--brand-bg-elevated) 38%, transparent);
+  --glass-border: color-mix(in oklab, white 9%, transparent);
+  --glass-border-strong: color-mix(in oklab, white 15%, transparent);
+  --glass-highlight: inset 0 1px 0 0 color-mix(in oklab, white 11%, transparent);
+  --glass-shadow:
+    0 16px 40px -14px color-mix(in oklab, black 55%, transparent),
+    0 4px 12px -2px color-mix(in oklab, black 35%, transparent);
+  --glass-shadow-lg:
+    0 36px 100px -20px color-mix(in oklab, black 78%, transparent),
+    0 12px 32px -8px color-mix(in oklab, black 50%, transparent);
+}
+
+@supports (background: linear-gradient(in oklab, white, black)) {
+  :root {
+    --in-oklab: in oklab;
+    --in-oklch: in oklch;
+  }
+}
+
 @layer base {
-  * {
-    border-color: var(--brand-border-subtle);
+  :root {
+    color-scheme: light dark;
+  }
+
+  *,
+  *::before,
+  *::after {
+    border-color: var(--glass-border);
   }
 
   html,
@@ -13,7 +80,24 @@
 
   body {
     margin: 0;
-    background: var(--brand-bg-primary);
+    background-color: var(--brand-bg-primary);
+    background-image:
+      radial-gradient(
+        65% 55% at 12% 0%,
+        color-mix(in oklab, var(--brand-accent-primary) 11%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        55% 50% at 88% 8%,
+        color-mix(in oklab, var(--brand-accent-secondary) 10%, transparent),
+        transparent 72%
+      ),
+      radial-gradient(
+        60% 45% at 50% 100%,
+        color-mix(in oklab, var(--brand-accent-primary) 6%, transparent),
+        transparent 75%
+      );
+    background-attachment: fixed;
     color: var(--brand-text-primary);
     font-family: var(--brand-font-sans);
     -webkit-font-smoothing: antialiased;
@@ -22,27 +106,36 @@
   }
 
   ::selection {
-    background: color-mix(in oklch, var(--brand-accent-primary) 32%, transparent);
+    background: color-mix(in oklab, var(--brand-accent-primary) 30%, transparent);
     color: var(--brand-text-primary);
   }
 
   :focus-visible {
-    outline: 2px solid var(--brand-accent-primary);
+    outline: 2px solid color-mix(in oklab, var(--brand-accent-primary) 80%, transparent);
     outline-offset: 2px;
+  }
+
+  dialog:modal {
+    overscroll-behavior: contain;
+  }
+
+  dialog::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--brand-border-subtle) transparent;
+    scrollbar-color: var(--glass-border-strong) transparent;
   }
 
   *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   *::-webkit-scrollbar-thumb {
-    background: var(--brand-border-subtle);
+    background: var(--glass-border-strong);
     border-radius: 999px;
   }
 
@@ -51,21 +144,264 @@
   }
 }
 
+/* Top-layer modal dialog entry/exit animations (animate-to-from-top-layer) */
+dialog.um-modal {
+  opacity: 0;
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.22s;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-behavior: allow-discrete;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transform: scale(0.96) translateY(6px);
+  }
+}
+
+dialog.um-modal::backdrop {
+  background-color: rgb(0 0 0 / 0);
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+  transition-property:
+    background-color,
+    backdrop-filter,
+    -webkit-backdrop-filter,
+    display,
+    overlay;
+  transition-duration: 0.22s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+
+dialog.um-modal[open]:where(:not([data-closing])) {
+  opacity: 1;
+
+  @starting-style {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    transform: scale(1) translateY(0);
+
+    @starting-style {
+      transform: scale(0.96) translateY(6px);
+    }
+  }
+}
+
+dialog.um-modal[open]:where(:not([data-closing]))::backdrop {
+  background-color: rgb(4 8 18 / 0.58);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+
+  @starting-style {
+    background-color: rgb(0 0 0 / 0);
+    backdrop-filter: blur(0px);
+    -webkit-backdrop-filter: blur(0px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog.um-modal,
+  dialog.um-modal::backdrop {
+    transition-duration: 0.08s;
+  }
+}
+
+/* Native scroll-snap mobile navigation drawer */
+.um-drawer {
+  --drawer-width: min(20em, 80dvw, calc(100dvw - 24px));
+  --drawer-backdrop: 0;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  overflow: visible;
+}
+
+.um-drawer::backdrop {
+  background: #000;
+  opacity: calc(var(--drawer-backdrop) * 0.55);
+}
+
+.um-drawer-scroller {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--drawer-width) 100%;
+  overflow-x: scroll;
+  overscroll-behavior: none;
+  scrollbar-width: none;
+  scroll-snap-type: x mandatory;
+}
+
+.um-drawer-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .um-drawer-scroller {
+    scroll-behavior: smooth;
+  }
+}
+
+.um-drawer-scroller::after {
+  content: "";
+  scroll-snap-align: end;
+  scroll-initial-target: nearest;
+}
+
+.um-drawer-sheet {
+  display: flex;
+  flex-direction: column;
+  height: 100svh;
+  background: var(--glass-surface-strong);
+  backdrop-filter: blur(28px) saturate(1.5);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  color: var(--brand-text-primary);
+  border-right: 1px solid var(--glass-border);
+  overflow-y: auto;
+  scroll-snap-align: start;
+  scrollbar-width: none;
+}
+
+@supports (animation-timeline: scroll()) {
+  @property --drawer-backdrop {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 0;
+  }
+
+  .um-drawer {
+    timeline-scope: --drawer-fade;
+    animation: fade-drawer-backdrop linear both;
+    animation-timeline: --drawer-fade;
+  }
+
+  .um-drawer-scroller {
+    scroll-timeline: --drawer-fade x;
+  }
+
+  @keyframes fade-drawer-backdrop {
+    0% {
+      --drawer-backdrop: 1;
+    }
+    100% {
+      --drawer-backdrop: 0;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @utility panel {
-  background: var(--brand-bg-elevated);
-  border: 1px solid var(--brand-border-subtle);
-  border-radius: var(--brand-radius);
+  background: var(--glass-surface);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--glass-border);
+  border-radius: calc(var(--brand-radius) + 6px);
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
 }
 
 @utility glass {
-  background: var(--brand-bg-glass);
-  backdrop-filter: blur(16px) saturate(1.15);
-  -webkit-backdrop-filter: blur(16px) saturate(1.15);
-  border: 1px solid var(--brand-border-subtle);
+  background: var(--glass-surface-strong);
+  backdrop-filter: blur(28px) saturate(1.5);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid var(--glass-border-strong);
+  box-shadow: var(--glass-highlight), var(--glass-shadow-lg);
+}
+
+@utility glass-subtle {
+  background: var(--glass-surface-subtle);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
+}
+
+@utility glass-input {
+  background: color-mix(in oklab, var(--brand-bg-primary) 55%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border-strong);
+  border-radius: calc(var(--brand-radius) + 2px);
+  box-shadow: inset 0 1px 2px 0 color-mix(in oklab, black 12%, transparent);
 }
 
 @utility tabular {
   font-family: var(--brand-font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
+}
+
+/* Otter-style underline tabs (modern-web-guidance: tabs) */
+.um-tab {
+  position: relative;
+  color: var(--brand-text-muted);
+  transition: color 0.15s ease;
+}
+
+.um-tab:hover {
+  color: var(--brand-text-primary);
+}
+
+.um-tab[aria-selected="true"] {
+  color: var(--brand-text-primary);
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 -1px;
+    border-block-end: 2px solid var(--brand-accent-primary);
+    border-radius: 999px;
+  }
+}
+
+/* Stretched-link feed cards with independent interactive actions (modern-web-guidance: card) */
+.um-feed-card:has(a.card-link) {
+  position: relative;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background-color 0.16s ease;
+
+  a.card-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+
+  a.card-link:focus-visible {
+    outline: none;
+  }
+
+  &:has(a.card-link:focus-visible) {
+    outline: 2px solid var(--brand-accent-primary);
+    outline-offset: 2px;
+  }
+
+  &:has(a.card-link:hover) {
+    border-color: color-mix(in oklab, var(--brand-accent-primary) 35%, var(--glass-border-strong));
+  }
+
+  a:not(.card-link),
+  button,
+  input,
+  select {
+    position: relative;
+    z-index: 1;
+  }
 }

@@ -158,6 +158,34 @@ impl WorkerClient {
         top_p: f32,
         top_k: u32,
         max_output_tokens: u32,
+        on_token: F,
+    ) -> BridgeResult<String>
+    where
+        F: FnMut(&str),
+    {
+        self.generate_with_grammar(
+            system,
+            user,
+            temperature,
+            top_p,
+            top_k,
+            max_output_tokens,
+            None,
+            on_token,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn generate_with_grammar<F>(
+        &mut self,
+        system: &str,
+        user: &str,
+        temperature: f32,
+        top_p: f32,
+        top_k: u32,
+        max_output_tokens: u32,
+        grammar: Option<String>,
         mut on_token: F,
     ) -> BridgeResult<String>
     where
@@ -172,6 +200,7 @@ impl WorkerClient {
                     top_p,
                     top_k,
                     max_output_tokens,
+                    grammar,
                 },
                 &mut on_token,
             )
@@ -282,6 +311,7 @@ mod tests {
                     top_p: 1.0,
                     top_k: 1,
                     max_output_tokens: 8,
+                    grammar: None,
                 },
             )
             .await

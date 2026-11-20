@@ -1,5 +1,7 @@
 use std::collections::BTreeSet;
 
+use crate::brand::{Brand, SynthesisSectionKind};
+
 use super::evidence::{normalize_evidence_id, normalize_name, EvidenceIndex};
 use super::types::{
     RawItem, RawSynthesis, SynthesisItemDraft, VerificationReport, VerifiedSynthesis,
@@ -10,19 +12,71 @@ use super::types::{
 /// at least one real evidence row, and every owner/deadline is grounded in that
 /// evidence (or in the known speaker directory).
 pub fn verify(raw: RawSynthesis, index: &EvidenceIndex) -> VerifiedSynthesis {
+    verify_with_brand(None, raw, index)
+}
+
+pub fn verify_with_brand(
+    brand: Option<&Brand>,
+    raw: RawSynthesis,
+    index: &EvidenceIndex,
+) -> VerifiedSynthesis {
     let mut report = VerificationReport::default();
     let mut items = Vec::new();
+    let action_section_keys: BTreeSet<String> = brand
+        .and_then(|b| b.manifest().synthesis_template.as_ref())
+        .map(|tpl| {
+            tpl.sections
+                .iter()
+                .filter(|sec| sec.kind == SynthesisSectionKind::Actions)
+                .map(|sec| normalize_section_key(&sec.key))
+                .collect()
+        })
+        .unwrap_or_default();
 
     for (item_type, raw_items) in [
         (ITEM_SUMMARY, raw.summary),
         (ITEM_DECISION, raw.decisions),
         (ITEM_ACTION, raw.action_items),
     ] {
+        let is_action_like = item_type == ITEM_ACTION;
         let mut sort_order = 0i64;
         for item in raw_items {
             report.raw_items += 1;
-            let Some(verified) = verify_item(item_type, item, sort_order, index, &mut report)
-            else {
+            let Some(verified) = verify_item(
+                item_type,
+                is_action_like,
+                item,
+                sort_order,
+                index,
+                &mut report,
+            ) else {
+                report.dropped_without_valid_evidence += 1;
+                continue;
+            };
+            report.kept_items += 1;
+            sort_order += 1;
+            items.push(verified);
+        }
+    }
+
+    for (raw_section, raw_items) in raw.extra_sections {
+        let section_type = normalize_section_key(&raw_section);
+        if section_type.is_empty() {
+            continue;
+        }
+        let is_action_like =
+            section_type == ITEM_ACTION || action_section_keys.contains(&section_type);
+        let mut sort_order = 0i64;
+        for item in raw_items {
+            report.raw_items += 1;
+            let Some(verified) = verify_item(
+                &section_type,
+                is_action_like,
+                item,
+                sort_order,
+                index,
+                &mut report,
+            ) else {
                 report.dropped_without_valid_evidence += 1;
                 continue;
             };
@@ -35,8 +89,19 @@ pub fn verify(raw: RawSynthesis, index: &EvidenceIndex) -> VerifiedSynthesis {
     VerifiedSynthesis { items, report }
 }
 
+fn normalize_section_key(raw: &str) -> String {
+    raw.trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string()
+}
+
 fn verify_item(
     item_type: &str,
+    is_action_like: bool,
     item: RawItem,
     sort_order: i64,
     index: &EvidenceIndex,
@@ -63,7 +128,7 @@ fn verify_item(
         return None;
     }
 
-    let (owner, deadline) = if item_type == ITEM_ACTION {
+    let (owner, deadline) = if is_action_like {
         let owner = ground_owner(item.owner.as_deref(), &evidence_refs, index, report);
         let deadline = ground_deadline(item.deadline.as_deref(), &evidence_refs, index, report);
         (Some(owner), Some(deadline))
@@ -268,6 +333,7 @@ mod tests {
                 "Next Friday",
                 &["T-09:20"],
             )],
+            ..Default::default()
         };
         let verified = verify(raw, &index());
         assert_eq!(verified.items.len(), 1);
@@ -296,6 +362,7 @@ mod tests {
                 "Wednesday",
                 &["T-09:20"],
             )],
+            ..Default::default()
         };
         let verified = verify(raw, &index());
         assert_eq!(verified.items.len(), 3);
@@ -316,6 +383,7 @@ mod tests {
                 ..Default::default()
             }],
             action_items: vec![action("Ghost task", "Alex", "Wednesday", &["FAKE-1"])],
+            ..Default::default()
         };
         let verified = verify(raw, &index());
         assert!(verified.items.is_empty());
@@ -333,6 +401,57 @@ mod tests {
         let verified = verify(raw, &index());
         assert_eq!(verified.items[0].evidence_refs, vec!["T-00:40", "S-04:10"]);
         assert_eq!(verified.report.stripped_evidence_refs, 1);
+    }
+
+    #[test]
+    fn custom_domain_template_verifies_soap_sections_and_plan_owners() {
+        let base = Brand::embedded().unwrap();
+        let soap_brand = crate::brand::apply_override(
+            base.manifest(),
+            serde_json::json!({
+                "synthesisTemplate": {
+                    "name": "Clinical SOAP Note",
+                    "sections": [
+                        { "key": "subjective", "label": "Subjective", "kind": "bullets" },
+                        { "key": "plan", "label": "Plan & Follow-Up", "kind": "actions" }
+                    ]
+                }
+            }),
+        )
+        .unwrap();
+        let brand_json = serde_json::to_string(&soap_brand).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let ov_path = dir.path().join("soap.json");
+        std::fs::write(&ov_path, brand_json).unwrap();
+        let brand = Brand::load(Some(&ov_path)).unwrap();
+
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert(
+            "subjective".to_string(),
+            vec![item("Security testing concern noted.", &["T-00:40"])],
+        );
+        extra.insert(
+            "plan".to_string(),
+            vec![action(
+                "Send revised cost sheet.",
+                "InventedClinician",
+                "Wednesday",
+                &["T-09:20"],
+            )],
+        );
+        let raw = RawSynthesis {
+            extra_sections: extra,
+            ..Default::default()
+        };
+        let verified = verify_with_brand(Some(&brand), raw, &index());
+        assert_eq!(verified.items.len(), 2);
+        let plan_item = verified
+            .items
+            .iter()
+            .find(|i| i.item_type == "plan")
+            .unwrap();
+        assert_eq!(plan_item.owner.as_deref(), Some(OWNER_UNASSIGNED));
+        assert_eq!(plan_item.deadline.as_deref(), Some("Wednesday"));
     }
 
     #[test]

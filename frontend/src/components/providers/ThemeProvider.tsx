@@ -7,6 +7,16 @@ import { useWorkspaceStore } from "@/stores/workspace";
 
 const STORAGE_KEY = `${BRAND_ID}:theme`;
 
+function applyDocumentTheme(mode: ThemeMode) {
+  document.documentElement.classList.toggle("dark", mode === "dark");
+  document.documentElement.dataset.theme = mode;
+  document.documentElement.style.colorScheme = mode;
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
+  if (meta) {
+    meta.content = mode;
+  }
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const theme = useWorkspaceStore((state) => state.theme);
   const setTheme = useWorkspaceStore((state) => state.setTheme);
@@ -18,17 +28,30 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } catch {
       stored = null;
     }
-    if (stored === "dark" || stored === "light") setTheme(stored);
+    if (stored === "dark" || stored === "light") {
+      setTheme(stored);
+    } else if (typeof window.matchMedia === "function") {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      setTheme(prefersDark ? "dark" : DEFAULT_THEME_MODE);
+    }
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY) return;
+      if (event.newValue === "dark" || event.newValue === "light") {
+        setTheme(event.newValue);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, [setTheme]);
 
   useEffect(() => {
     const mode: ThemeMode = theme === "light" ? "light" : "dark";
-    document.documentElement.classList.toggle("dark", mode === "dark");
-    document.documentElement.dataset.theme = mode;
+    applyDocumentTheme(mode);
     try {
       window.localStorage.setItem(STORAGE_KEY, mode);
     } catch {
-      // Vault-owned UI never depends on storage succeeding.
+      // Storage access is optional.
     }
   }, [theme]);
 

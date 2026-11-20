@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+
 import { slideAccent, slideBackground } from "@/lib/display";
 import type { Screenshot } from "@/lib/demo-data";
 import { cn } from "@/lib/utils";
@@ -13,7 +17,35 @@ export function SlideThumbnail({
   className?: string;
   showTime?: boolean;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
   const accent = slideAccent(screenshot.palette);
+
+  if (screenshot.assetUrl && !imageFailed) {
+    return (
+      <div
+        className={cn(
+          "relative isolate flex overflow-hidden rounded-[5px] border border-border-subtle bg-bg-primary text-text-primary",
+          compact ? "aspect-[16/10]" : "aspect-[16/9]",
+          className,
+        )}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={screenshot.assetUrl}
+          alt={`${screenshot.title}, captured slide`}
+          loading="lazy"
+          onError={() => setImageFailed(true)}
+          className="size-full object-cover"
+        />
+        {showTime && screenshot.caption && (
+          <span className="tabular pointer-events-none absolute right-1.5 top-1.5 rounded bg-black/65 px-1.5 py-0.5 text-[10px] text-white backdrop-blur-xs">
+            {screenshot.caption}
+          </span>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       role="img"
@@ -38,19 +70,19 @@ export function SlideThumbnail({
       <div
         className={cn(
           "relative flex items-center justify-between gap-2 border-b border-white/10",
-          compact ? "px-1.5 py-1" : "px-2.5 py-1.5",
+          compact ? "px-1.5 py-0.5" : "px-2.5 py-1.5",
         )}
       >
         <span
           className={cn(
-            "font-mono uppercase tracking-[0.16em] text-text-muted",
-            compact ? "text-[6px]" : "text-[8px]",
+            "font-mono uppercase tracking-[0.14em] text-text-muted",
+            compact ? "text-[9px]" : "text-[10px]",
           )}
         >
           Slide
         </span>
         {showTime && (
-          <span className={cn("tabular text-text-muted", compact ? "text-[6px]" : "text-[8px]")}>
+          <span className={cn("tabular text-text-muted", compact ? "text-[9px]" : "text-[10px]")}>
             {screenshot.caption}
           </span>
         )}
@@ -72,26 +104,17 @@ export function SlideThumbnail({
         />
         <p
           className={cn(
-            "max-w-[92%] font-semibold leading-tight tracking-[-0.02em]",
-            compact ? "text-[8px]" : "text-[13px]",
+            "max-w-[94%] truncate font-semibold leading-tight tracking-[-0.02em]",
+            compact ? "text-[10px]" : "text-[13px]",
           )}
         >
           {screenshot.title}
         </p>
         {!compact && (
-          <p className="line-clamp-2 max-w-[96%] text-[8.5px] leading-[1.45] text-text-muted">
+          <p className="line-clamp-2 max-w-[96%] text-[11px] leading-[1.45] text-text-muted">
             {screenshot.slideText}
           </p>
         )}
-        <div className="mt-1 flex items-end gap-1" aria-hidden="true">
-          {[42, 60, 30, 74, 48].map((width, index) => (
-            <span
-              key={index}
-              className="block rounded-full bg-text-muted/35"
-              style={{ width: compact ? width / 4 : width, height: compact ? 1 : 2 }}
-            />
-          ))}
-        </div>
       </div>
       <span
         aria-hidden="true"

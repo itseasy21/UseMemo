@@ -6,8 +6,26 @@ pub const ITEM_ACTION: &str = "action_item";
 pub const OWNER_UNASSIGNED: &str = "Unassigned";
 pub const DEADLINE_UNSPECIFIED: &str = "Not specified";
 
-/// Shape emitted by LiteRT-LM. Aliases accept common camelCase/snake_case drift
-/// without weakening the evidence contract.
+/// Strict GBNF grammar constraining local `llama.cpp` decoding to a single
+/// valid JSON object whose sections are arrays of `RawItem` objects carrying
+/// `"content"` and `"evidenceIds"`.
+pub const JSON_OBJECT_GBNF: &str = r#"
+root     ::= ws object ws
+object   ::= "{" ws (section ("," ws section)*)? "}" ws
+section  ::= string ":" ws "[" ws (item ("," ws item)*)? "]" ws
+item     ::= "{" ws "\"content\"" ws ":" ws string ("," ws optfield)* "," ws "\"evidenceIds\"" ws ":" ws strarray "}" ws
+optfield ::= ("\"rationale\"" | "\"owner\"" | "\"deadline\"") ws ":" ws (string | "null" ws)
+strarray ::= "[" ws string ("," ws string)* "]" ws
+string   ::= "\"" (
+  [^"\\\x7F\x00-\x1F] |
+  "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
+)* "\"" ws
+ws       ::= ([ \t\n\r])*
+"#;
+
+/// Shape emitted by the local SLM. Aliases accept common camelCase/snake_case
+/// drift AND custom domain sections (e.g. Clinical SOAP) without weakening the
+/// evidence contract.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RawSynthesis {
@@ -17,6 +35,8 @@ pub struct RawSynthesis {
     pub decisions: Vec<RawItem>,
     #[serde(default, alias = "actionItems", alias = "action_items")]
     pub action_items: Vec<RawItem>,
+    #[serde(flatten, default)]
+    pub extra_sections: std::collections::BTreeMap<String, Vec<RawItem>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -95,6 +115,17 @@ pub struct VerificationReport {
     pub forced_unspecified_deadlines: usize,
 }
 
+impl VerificationReport {
+    pub fn merge(&mut self, other: &Self) {
+        self.raw_items += other.raw_items;
+        self.kept_items += other.kept_items;
+        self.dropped_without_valid_evidence += other.dropped_without_valid_evidence;
+        self.stripped_evidence_refs += other.stripped_evidence_refs;
+        self.forced_unassigned_owners += other.forced_unassigned_owners;
+        self.forced_unspecified_deadlines += other.forced_unspecified_deadlines;
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SynthesisRequest {
@@ -104,6 +135,8 @@ pub struct SynthesisRequest {
     pub top_p: f32,
     pub top_k: u32,
     pub max_output_tokens: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grammar: Option<String>,
 }
 
 impl Default for SynthesisRequest {
@@ -115,6 +148,7 @@ impl Default for SynthesisRequest {
             top_p: 1.0,
             top_k: 1,
             max_output_tokens: 2048,
+            grammar: Some(JSON_OBJECT_GBNF.to_string()),
         }
     }
 }

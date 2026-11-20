@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
+import { BrandProvider } from "@/components/providers/BrandProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { GlobalOverlays } from "@/components/shell/GlobalOverlays";
 import { BRAND, DEFAULT_THEME_MODE } from "@/generated/brand";
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  colorScheme: "light dark",
   themeColor: BRAND.theme.tokens[BRAND.theme.defaultMode].bgPrimary,
 };
 
@@ -33,8 +34,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     >
       <body>
         <ThemeProvider>
-          {children}
-          <GlobalOverlays />
+          <BrandProvider>
+            {children}
+            <GlobalOverlays />
+          </BrandProvider>
         </ThemeProvider>
       </body>
     </html>

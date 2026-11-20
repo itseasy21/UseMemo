@@ -40,7 +40,8 @@ pub fn get_brand_config(state: State<'_, AppState>) -> BrandConfigResponse {
         models_dir: state.paths.models_dir.to_string_lossy().into_owned(),
         exports_dir: state.paths.exports_dir.to_string_lossy().into_owned(),
         override_applied: state.brand.override_applied(),
-        manifest_json: crate::generated_brand::BRAND_MANIFEST_JSON.to_string(),
+        manifest_json: serde_json::to_string_pretty(manifest)
+            .unwrap_or_else(|_| crate::generated_brand::BRAND_MANIFEST_JSON.to_string()),
     }
 }
 

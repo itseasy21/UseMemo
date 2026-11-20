@@ -35,6 +35,8 @@ crates/memo-litert-bridge/**/*.o
 crates/memo-litert-bridge/**/*.a
 crates/memo-mobile-audio/android/.tauri/
 crates/memo-mobile-audio/android/build/
+frontend/src-tauri/binaries/
+frontend/src-tauri/icons/.source-sha256
 .DS_Store
 
 # Editor
@@ -44,3 +46,7 @@ crates/memo-mobile-audio/android/build/
 
 # Upstream checkout (when cloning inside the workspace for inspection)
 upstream/
+
+# Local session scratch files & assets
+brag-output/
+session-*.md

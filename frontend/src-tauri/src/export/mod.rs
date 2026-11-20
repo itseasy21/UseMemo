@@ -184,11 +184,63 @@ fn render_markdown(input: &ExportMeeting<'_>, images: &[PreparedImage]) -> Strin
 
     if !ordered_synthesis.is_empty() {
         out.push_str("## Synthesis\n\n");
-        for (label, kind) in [
-            ("Summary", "summary"),
-            ("Decisions", "decision"),
-            ("Action Items", "action_item"),
-        ] {
+        let mut rendered_kinds: BTreeSet<String> = BTreeSet::new();
+        let mut section_specs: Vec<(String, String, bool)> = vec![
+            ("Summary".into(), "summary".into(), false),
+            ("Decisions".into(), "decision".into(), false),
+            ("Action Items".into(), "action_item".into(), true),
+        ];
+        if let Some(tpl) = manifest.synthesis_template.as_ref() {
+            for sec in &tpl.sections {
+                let normalized_key = sec
+                    .key
+                    .trim()
+                    .to_ascii_lowercase()
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                    .collect::<String>()
+                    .trim_matches('_')
+                    .to_string();
+                if !section_specs.iter().any(|(_, k, _)| k == &normalized_key) {
+                    section_specs.push((
+                        sec.label.clone(),
+                        normalized_key,
+                        sec.kind == crate::brand::SynthesisSectionKind::Actions,
+                    ));
+                }
+            }
+        }
+        for item in &ordered_synthesis {
+            if !section_specs.iter().any(|(_, k, _)| k == &item.item_type) {
+                let pretty = item
+                    .item_type
+                    .split('_')
+                    .filter(|s| !s.is_empty())
+                    .map(|word| {
+                        let mut chars = word.chars();
+                        match chars.next() {
+                            Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+                            None => String::new(),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                section_specs.push((
+                    if pretty.is_empty() {
+                        item.item_type.clone()
+                    } else {
+                        pretty
+                    },
+                    item.item_type.clone(),
+                    item.owner.is_some() || item.deadline.is_some(),
+                ));
+            }
+        }
+
+        for (label, kind, is_action_table) in section_specs {
+            if !rendered_kinds.insert(kind.clone()) {
+                continue;
+            }
             let items: Vec<&&SynthesisItem> = ordered_synthesis
                 .iter()
                 .filter(|item| item.item_type == kind)
@@ -197,7 +249,7 @@ fn render_markdown(input: &ExportMeeting<'_>, images: &[PreparedImage]) -> Strin
                 continue;
             }
             out.push_str(&format!("### {label}\n\n"));
-            if kind == "action_item" {
+            if is_action_table {
                 out.push_str("| Action | Owner | Deadline | Evidence |\n");
                 out.push_str("| --- | --- | --- | --- |\n");
                 for item in items {

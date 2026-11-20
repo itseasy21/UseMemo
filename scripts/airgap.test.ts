@@ -64,6 +64,7 @@ const FORBIDDEN_TOKENS = [
 const ALLOWED_URL_HOSTS = new Set([
   "huggingface.co",
   "json.schemastore.org",
+  "json-schema.org",
   "schema.tauri.app",
   "github.com",
   "example.com",
@@ -132,10 +133,17 @@ test("the only remote hosts in source are the model registry and schemas", () =>
   assert.deepEqual(violations, []);
 });
 
-test("CSP never permits a remote connect-src", () => {
+test("CSP never permits a remote or dev connect-src in production", () => {
   const config = JSON.parse(
     readFileSync(path.join(ROOT, "frontend/src-tauri/tauri.conf.json"), "utf8"),
-  ) as { app: { security: { csp: string } } };
+  ) as {
+    app: {
+      security: {
+        csp: string;
+        assetProtocol?: { scope?: string[] };
+      };
+    };
+  };
   const csp = config.app.security.csp;
   const connect = csp
     .split(";")
@@ -148,12 +156,16 @@ test("CSP never permits a remote connect-src", () => {
     assert.ok(
       source === "'self'" ||
         source.startsWith("ipc:") ||
-        source.startsWith("http://ipc.localhost") ||
-        source.startsWith("http://localhost:") ||
-        source.startsWith("ws://localhost:"),
-      `unexpected connect-src origin: ${source}`,
+        source === "http://ipc.localhost" ||
+        source === "https://ipc.localhost" ||
+        source.startsWith("asset:") ||
+        source === "http://asset.localhost" ||
+        source === "https://asset.localhost",
+      `unexpected production connect-src origin: ${source}`,
     );
   }
+  const scope = config.app.security.assetProtocol?.scope ?? [];
+  assert.ok(!scope.includes("$TEMP/**"), "assetProtocol must not expose shared OS temp directory");
 });
 
 test("UI code uses no browser network primitives", () => {

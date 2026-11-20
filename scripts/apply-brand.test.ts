@@ -5,7 +5,9 @@ import test from "node:test";
 import {
   REPO_ROOT,
   deepMerge,
+  encodeIcoFromPngs,
   generateTextFiles,
+  isSafeCssValue,
   loadManifest,
   renderBrandTokensCss,
   renderBrandTs,
@@ -40,7 +42,7 @@ test("profile overlay deep-merges theme and feature maps while replacing scalars
   assert.equal(profile.theme.tokens.dark.accentSecondary, "oklch(0.64 0.13 300)");
   assert.equal(profile.features.enableGnuKeybindings, false);
   assert.equal(profile.features.airGappedEnforcement, true);
-  assert.equal(profile.modelRegistry.defaultSlmRepo, "litert-community/gemma-4-E4B-it-litert-lm");
+  assert.equal(profile.modelRegistry.defaultSlmRepo, "bartowski/google_gemma-3-4b-it-GGUF");
   assert.equal(profile.modelRegistry.defaultAsrRepo, base.modelRegistry.defaultAsrRepo);
   assert.deepEqual(validateManifest(profile), []);
 });
@@ -76,7 +78,11 @@ test("generated Tauri config carries identity, HUD window, CSP, and icons", () =
     version: string;
     app: {
       windows: Array<{ label: string; url?: string; alwaysOnTop?: boolean; transparent?: boolean }>;
-      security: { csp: string };
+      security: {
+        csp: string;
+        devCsp: string;
+        assetProtocol: { enable: boolean; scope: string[] };
+      };
     };
     bundle: { icon: string[]; resources: string[] };
     plugins: { "deep-link": { desktop: { schemes: string[] } } };
@@ -87,10 +93,16 @@ test("generated Tauri config carries identity, HUD window, CSP, and icons", () =
   assert.equal(config.version, "9.9.9");
   const hud = config.app.windows.find((window) => window.label === "hud");
   assert.ok(hud);
-  assert.equal(hud.url, "/hud");
+  assert.equal(hud.url, "/hud/");
   assert.equal(hud.alwaysOnTop, true);
   assert.equal(hud.transparent, true);
   assert.match(config.app.security.csp, /default-src 'self'/);
+  assert.doesNotMatch(config.app.security.csp, /localhost:3000/);
+  assert.match(config.app.security.devCsp, /localhost:3000/);
+  assert.ok(
+    config.app.security.assetProtocol.scope.includes("$DATA/clinical-scribe-offline/media/**"),
+  );
+  assert.ok(!config.app.security.assetProtocol.scope.includes("$TEMP/**"));
   assert.ok(config.bundle.icon.includes("icons/icon.icns"));
   assert.ok(config.bundle.resources.includes("resources/brand.config.json"));
   assert.deepEqual(config.plugins["deep-link"].desktop.schemes, ["clinicalscribe"]);
@@ -199,12 +211,17 @@ test("capabilities cover both windows and the HUD reveal controls", () => {
   assert.match(capabilities, /core:window:allow-show/);
   assert.match(capabilities, /core:window:allow-hide/);
   assert.match(capabilities, /core:window:allow-set-focus/);
+  assert.match(capabilities, /core:window:allow-start-dragging/);
+  assert.match(capabilities, /deep-link:default/);
+  assert.match(capabilities, /memo-mobile-audio:default/);
 });
 
 test("codegen emits every required artifact", () => {
   const files = generateTextFiles(profile).map((file) => file.relativePath);
   assert.deepEqual(files, [
     "frontend/src-tauri/tauri.conf.json",
+    "frontend/src-tauri/tauri.android.conf.json",
+    "frontend/src-tauri/tauri.ios.conf.json",
     "frontend/src-tauri/Info.plist",
     "frontend/src-tauri/Info.ios.plist",
     "frontend/src-tauri/capabilities/default.json",
@@ -220,4 +237,39 @@ test("all required brand assets exist on disk", () => {
   for (const assetPath of Object.values(base.assets)) {
     assert.ok(fs.existsSync(`${REPO_ROOT}/${assetPath}`), `missing asset: ${assetPath}`);
   }
+});
+
+test("CSS value validator blocks rule-breakout and external url() injection", () => {
+  assert.equal(isSafeCssValue("oklch(0.72 0.16 165)"), true);
+  assert.equal(isSafeCssValue("Inter, system-ui, sans-serif"), true);
+  assert.equal(isSafeCssValue("red; } body { background: url(https://example.com/bg.png) }"), false);
+  assert.equal(isSafeCssValue("@import 'https://example.com/x.css'"), false);
+
+  const injected = structuredClone(base) as BrandManifest;
+  injected.theme.tokens.dark.accentPrimary = "red; } * { display: none";
+  const errors = validateManifest(injected);
+  assert.ok(errors.some((e) => e.includes("unsafe CSS")));
+});
+
+test("pure-TS ICO encoder writes valid ICONDIR header and directory entries", () => {
+  const fakePng16 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+  const fakePng256 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 5, 6, 7, 8, 9, 10]);
+  const ico = encodeIcoFromPngs([
+    { size: 16, png: fakePng16 },
+    { size: 256, png: fakePng256 },
+  ]);
+  assert.equal(ico.readUInt16LE(0), 0); // Reserved
+  assert.equal(ico.readUInt16LE(2), 1); // Type = ICO
+  assert.equal(ico.readUInt16LE(4), 2); // 2 frames
+  assert.equal(ico.readUInt8(6), 16); // First frame width = 16
+  assert.equal(ico.readUInt8(6 + 16), 0); // Second frame width = 0 (256px)
+  assert.equal(ico.length, 6 + 32 + fakePng16.length + fakePng256.length);
+});
+
+test("clinical-scribe-offline profile defines Clinical SOAP synthesisTemplate", () => {
+  assert.equal(profile.synthesisTemplate?.name, "Clinical SOAP Note");
+  assert.deepEqual(
+    profile.synthesisTemplate?.sections.map((s) => s.key),
+    ["subjective", "objective", "assessment", "plan"],
+  );
 });

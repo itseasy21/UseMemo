@@ -22,20 +22,23 @@ export function Toggle({
       aria-checked={checked}
       aria-label={label}
       disabled={disabled}
-      onClick={() => onChange(!checked)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onChange(!checked);
+      }}
       className={cn(
-        "relative inline-flex shrink-0 items-center rounded-full border transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40",
-        size === "sm" ? "h-4 w-7" : "h-5 w-9",
+        "relative inline-flex shrink-0 cursor-pointer items-center rounded-full border transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40",
+        size === "sm" ? "h-5 w-9" : "h-6 w-11",
         checked
-          ? "border-accent-primary/40 bg-accent-primary/80"
-          : "border-border-subtle bg-bg-primary/80",
+          ? "border-accent-primary/50 bg-accent-primary shadow-[0_0_12px_-2px_color-mix(in_oklab,var(--brand-accent-primary)_55%,transparent)]"
+          : "border-[var(--glass-border-strong)] bg-[var(--glass-surface-subtle)]",
       )}
     >
       <span
         className={cn(
-          "pointer-events-none block rounded-full bg-bg-primary shadow-sm transition-transform duration-200 dark:bg-text-primary",
-          size === "sm" ? "size-3" : "size-4",
-          checked ? (size === "sm" ? "translate-x-3.5" : "translate-x-[18px]") : "translate-x-0.5",
+          "pointer-events-none block rounded-full bg-white shadow-sm transition-transform duration-200",
+          size === "sm" ? "size-3.5" : "size-4.5",
+          checked ? (size === "sm" ? "translate-x-4" : "translate-x-5") : "translate-x-0.5",
         )}
       />
     </button>

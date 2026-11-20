@@ -1,13 +1,16 @@
-import { BRAND } from "@/generated/brand";
+"use client";
+
+import { useBrand } from "@/components/providers/BrandProvider";
 import { cn } from "@/lib/utils";
 
-/** Inline rendition of the shipped brand mark (assets live outside the web root). */
+/** Dynamic brand mark driven by `--brand-*` CSS tokens and runtime manifest. */
 export function BrandMark({ className }: { className?: string }) {
+  const brand = useBrand();
   return (
     <svg
       viewBox="0 0 40 40"
       role="img"
-      aria-label={`${BRAND.productName} mark`}
+      aria-label={`${brand.productName} mark`}
       className={cn("size-8 shrink-0", className)}
     >
       <rect
@@ -60,17 +63,18 @@ export function Wordmark({
   showTagline?: boolean;
   className?: string;
 }) {
+  const brand = useBrand();
   return (
     <span className={cn("flex min-w-0 items-center gap-2.5", className)}>
       <BrandMark className="size-8" />
       {!collapsed && (
         <span className="min-w-0">
           <span className="block truncate text-[14px] font-semibold tracking-[-0.025em] text-text-primary">
-            {BRAND.productName}
+            {brand.productName}
           </span>
           {showTagline ? (
-            <span className="mt-0.5 block truncate text-[8.5px] font-medium uppercase tracking-[0.18em] text-text-muted">
-              {BRAND.tagline}
+            <span className="mt-0.5 block truncate text-[9.5px] font-medium uppercase tracking-[0.16em] text-text-muted">
+              {brand.tagline}
             </span>
           ) : null}
         </span>

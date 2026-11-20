@@ -332,6 +332,50 @@ function readVersion(root: string): string {
   return pkg.version;
 }
 
+function rustHostTriple(cwd: string): string {
+  const out = spawnSync("rustc", ["-vV"], { cwd, encoding: "utf8" });
+  const match = /^host:\s+(\S+)$/m.exec(out.stdout ?? "");
+  if (match?.[1]) return match[1];
+  if (process.platform === "darwin") {
+    return process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
+  }
+  if (process.platform === "win32") {
+    return process.arch === "arm64" ? "aarch64-pc-windows-msvc" : "x86_64-pc-windows-msvc";
+  }
+  return process.arch === "arm64" ? "aarch64-unknown-linux-gnu" : "x86_64-unknown-linux-gnu";
+}
+
+export function stageLlamaWorkerSidecar(root = REPO_ROOT): string {
+  const triple = rustHostTriple(root);
+  const ext = process.platform === "win32" ? ".exe" : "";
+  console.log(`> cargo build --release -p memo-llama-worker (${triple})`);
+  const workerBuild = spawnSync("cargo", ["build", "--release", "-p", "memo-llama-worker"], {
+    cwd: root,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (workerBuild.status !== 0) {
+    throw new Error(`memo-llama-worker build failed with exit code ${workerBuild.status ?? "unknown"}`);
+  }
+
+  const targetRoot = process.env.CARGO_TARGET_DIR
+    ? path.resolve(root, process.env.CARGO_TARGET_DIR)
+    : path.join(root, "target");
+  const builtWorker = path.join(targetRoot, "release", `memo-litert-worker${ext}`);
+  if (!fs.existsSync(builtWorker)) {
+    throw new Error(`Expected built worker binary at ${builtWorker}`);
+  }
+
+  const binariesDir = path.join(root, "frontend", "src-tauri", "binaries");
+  fs.mkdirSync(binariesDir, { recursive: true });
+  const sidecarDest = path.join(binariesDir, `memo-litert-worker-${triple}${ext}`);
+  fs.copyFileSync(builtWorker, sidecarDest);
+  if (process.platform !== "win32") {
+    fs.chmodSync(sidecarDest, 0o755);
+  }
+  return sidecarDest;
+}
+
 export function packageRelease(options: PackageOptions = {}): PackageResult {
   const root = options.root ?? REPO_ROOT;
   const platform = options.platform ?? currentPlatform();
@@ -341,12 +385,37 @@ export function packageRelease(options: PackageOptions = {}): PackageResult {
   const warnings: string[] = [];
 
   if (!options.skipBuild) {
-    console.log(`> pnpm tauri:build (${manifest.productName} ${version})`);
-    const build = spawnSync("pnpm", ["tauri:build"], {
+    const brandArgs = ["brand:apply"];
+    if (options.profile) {
+      brandArgs.push(`--profile=${options.profile}`);
+    }
+    console.log(`> pnpm ${brandArgs.join(" ")} (${manifest.productName})`);
+    const apply = spawnSync("pnpm", brandArgs, {
       cwd: root,
       stdio: "inherit",
       shell: process.platform === "win32",
     });
+    if (apply.status !== 0) {
+      throw new Error(`Brand codegen failed with exit code ${apply.status ?? "unknown"}`);
+    }
+
+    stageLlamaWorkerSidecar(root);
+
+    const sidecarOverlay = JSON.stringify({
+      bundle: {
+        externalBin: ["binaries/memo-litert-worker"],
+      },
+    });
+    console.log(`> tauri build (${manifest.productName} ${version})`);
+    const build = spawnSync(
+      "pnpm",
+      ["--filter", "@use-memo/frontend", "exec", "tauri", "build", "--config", sidecarOverlay],
+      {
+        cwd: root,
+        stdio: "inherit",
+        shell: process.platform === "win32",
+      },
+    );
     if (build.status !== 0) {
       throw new Error(`Tauri build failed with exit code ${build.status ?? "unknown"}`);
     }

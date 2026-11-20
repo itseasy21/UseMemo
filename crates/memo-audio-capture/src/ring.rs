@@ -15,7 +15,7 @@ pub struct SampleRing {
 
 impl SampleRing {
     pub fn new(capacity: usize) -> Self {
-        assert!(capacity > 0, "ring capacity must be positive");
+        let capacity = capacity.max(1);
         Self {
             samples: VecDeque::with_capacity(capacity),
             capacity,

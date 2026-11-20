@@ -107,7 +107,7 @@ struct Fft {
 
 impl Fft {
     fn new(size: usize) -> Self {
-        assert!(size.is_power_of_two(), "FFT size must be a power of two");
+        let size = size.next_power_of_two().max(2);
         let bits = size.trailing_zeros();
         let reverse = (0..size)
             .map(|index| index.reverse_bits() >> (usize::BITS - bits))

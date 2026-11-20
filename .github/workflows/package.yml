@@ -24,7 +24,7 @@ jobs:
             os: macos-14
             platform: macos
           - name: macos-x86_64
-            os: macos-13
+            os: macos-15-intel
             platform: macos
           - name: windows-x86_64
             os: windows-latest
@@ -34,6 +34,8 @@ jobs:
             platform: linux
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    env:
+      MEMO_OCR_FAST: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -56,15 +58,24 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.name }}
+          key: package-${{ matrix.name }}
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential cmake curl file libasound2-dev libayatana-appindicator3-dev \
-            libssl-dev libwebkit2gtk-4.1-dev librsvg2-dev patchelf wget
+            build-essential cmake clang libclang-dev pkg-config curl file \
+            libasound2-dev libayatana-appindicator3-dev libssl-dev \
+            libwebkit2gtk-4.1-dev librsvg2-dev libfuse2 patchelf rpm wget xdg-utils
+
+      - name: Configure Windows LLVM libclang
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          if (Test-Path "C:\Program Files\LLVM\bin") {
+            echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
 
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
@@ -72,15 +83,21 @@ jobs:
       - name: Verify generated brand files
         run: pnpm brand:check
 
-      - name: Run JS guards and Rust tests
-        run: pnpm test
+      - name: Run JS guards, frontend build, and Rust tests
+        run: |
+          pnpm build
+          pnpm test
 
       - name: Import Apple signing certificate
-        if: matrix.platform == 'macos' && env.APPLE_CERTIFICATE != ''
+        if: matrix.platform == 'macos'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "No APPLE_CERTIFICATE secret configured; building ad-hoc signed bundle."
+            exit 0
+          fi
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
           echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
@@ -89,8 +106,10 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERTIFICATE_PASSWORD" \
             -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
-          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" "$HOME/Library/Keychains/login.keychain-db"
+          rm -f "$RUNNER_TEMP/cert.p12"
 
       - name: Build and package
         env:
@@ -99,6 +118,20 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm package:release
+
+      - name: Sign outer macOS DMG when Developer ID is configured
+        if: matrix.platform == 'macos'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            exit 0
+          fi
+          for dmg in dist/release/*/*/*.dmg; do
+            [ -f "$dmg" ] || continue
+            codesign --force --sign "$APPLE_SIGNING_IDENTITY" "$dmg"
+            codesign --verify --verbose=2 "$dmg"
+          done
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4

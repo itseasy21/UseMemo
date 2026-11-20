@@ -52,7 +52,18 @@ pub struct DualStreamMixer {
 
 impl Default for DualStreamMixer {
     fn default() -> Self {
-        Self::new(MixerConfig::default()).expect("default mixer config is valid")
+        let config = MixerConfig::default();
+        let ring_capacity = config.ring_capacity.max(1);
+        Self {
+            mic: SampleRing::new(ring_capacity),
+            system: SampleRing::new(ring_capacity),
+            meter: LevelMeter::new(),
+            clock: SampleClock::new(config.sample_rate),
+            last_level: LevelFrame::silence(),
+            mic_skew_trimmed: 0,
+            system_skew_trimmed: 0,
+            config,
+        }
     }
 }
 

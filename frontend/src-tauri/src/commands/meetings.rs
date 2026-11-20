@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,9 +12,10 @@ use crate::audio::{
 };
 use crate::error::{AppError, AppResult};
 use crate::events::{AudioLevelsPayload, RecordingStoppedPayload, SystemAudioFacts};
-use crate::screenshot::policy::CaptureScheduler;
+use crate::screenshot::capture::{CaptureTarget, VisualCaptureTarget};
+use crate::screenshot::policy::{CaptureScheduler, ScreenshotPolicy};
 use crate::state::{AppState, RecordingRuntime, RecordingSnapshot};
-use crate::storage::{CreateMeetingInput, Meeting};
+use crate::storage::{CreateMeetingInput, Meeting, UpdateMeetingPatch};
 
 #[tauri::command]
 pub async fn create_meeting(
@@ -21,6 +23,23 @@ pub async fn create_meeting(
     input: CreateMeetingInput,
 ) -> AppResult<Meeting> {
     state.db.create_meeting(input).await
+}
+
+#[tauri::command]
+pub async fn update_meeting(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    meeting_id: String,
+    patch: UpdateMeetingPatch,
+) -> AppResult<Meeting> {
+    let meeting = state.db.update_meeting(&meeting_id, patch).await?;
+    let _ = app.emit(
+        crate::events::MEETING_CHANGED,
+        crate::events::MeetingChangedPayload {
+            meeting: meeting.clone(),
+        },
+    );
+    Ok(meeting)
 }
 
 #[tauri::command]
@@ -44,21 +63,89 @@ pub async fn finish_meeting(
 
 #[tauri::command]
 pub async fn delete_meeting(state: State<'_, AppState>, meeting_id: String) -> AppResult<()> {
+    {
+        let active = state.recording.lock().await;
+        if active
+            .as_ref()
+            .is_some_and(|runtime| runtime.meeting_id == meeting_id)
+        {
+            return Err(AppError::Capture(
+                "stop the active recording before deleting this meeting".into(),
+            ));
+        }
+    }
     state.db.delete_meeting(&meeting_id).await?;
     let media = state.paths.meeting_media_dir(&meeting_id);
-    if media.exists() {
-        std::fs::remove_dir_all(media)?;
-    }
+    let exports_meetings_dir = state.paths.exports_dir.join("meetings");
+    let short_suffix = format!(
+        "-{}",
+        meeting_id
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(8)
+            .collect::<String>()
+            .to_ascii_lowercase()
+    );
+    tokio::task::spawn_blocking(move || -> AppResult<()> {
+        if media.exists() {
+            std::fs::remove_dir_all(&media)?;
+        }
+        if short_suffix.len() > 1 && exports_meetings_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&exports_meetings_dir) {
+                for entry in entries.flatten() {
+                    if entry.file_name().to_string_lossy().ends_with(&short_suffix) {
+                        let _ = std::fs::remove_dir_all(entry.path());
+                    }
+                }
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| AppError::Invalid(format!("delete cleanup task failed: {error}")))??;
+
+    tracing::info!(meeting_id = %meeting_id, "deleted meeting and associated media/exports");
     Ok(())
 }
 
 #[tauri::command]
 pub async fn set_meeting_starred(
+    app: AppHandle,
     state: State<'_, AppState>,
     meeting_id: String,
     starred: bool,
-) -> AppResult<()> {
-    state.db.set_meeting_starred(&meeting_id, starred).await
+) -> AppResult<Meeting> {
+    state.db.set_meeting_starred(&meeting_id, starred).await?;
+    let meeting = state.db.get_meeting(&meeting_id).await?;
+    let _ = app.emit(
+        crate::events::MEETING_CHANGED,
+        crate::events::MeetingChangedPayload {
+            meeting: meeting.clone(),
+        },
+    );
+    Ok(meeting)
+}
+
+#[tauri::command]
+pub async fn set_meeting_tags(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    tags: Vec<String>,
+) -> AppResult<Vec<String>> {
+    state.db.set_meeting_tags(&meeting_id, tags).await
+}
+
+#[tauri::command]
+pub async fn get_meeting_tags(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> AppResult<Vec<String>> {
+    state.db.get_meeting_tags(&meeting_id).await
+}
+
+#[tauri::command]
+pub async fn list_all_tags(state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    state.db.list_all_tags().await
 }
 
 #[tauri::command]
@@ -67,10 +154,70 @@ pub async fn set_screenshot_interval(
     meeting_id: String,
     interval_sec: i64,
 ) -> AppResult<()> {
+    let policy = ScreenshotPolicy::new(interval_sec)?;
     state
         .db
         .set_screenshot_interval(&meeting_id, interval_sec)
-        .await
+        .await?;
+
+    let effective_interval = if state.brand.manifest().features.enable_periodic_screenshots {
+        interval_sec
+    } else {
+        0
+    };
+    let mut active = state.recording.lock().await;
+    if let Some(runtime) = active
+        .as_mut()
+        .filter(|runtime| runtime.meeting_id == meeting_id)
+    {
+        runtime.interval_sec = effective_interval;
+        {
+            let mut sched = runtime.scheduler.lock().await;
+            sched.session_mut().policy = if effective_interval == 0 {
+                ScreenshotPolicy::new(0)?
+            } else {
+                policy
+            };
+        }
+        let _ = runtime.interval_tx.send(effective_interval);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureTargetsResponse {
+    pub microphones: Vec<String>,
+    pub visual_targets: Vec<VisualCaptureTarget>,
+    pub active_target: CaptureTarget,
+}
+
+#[tauri::command]
+pub async fn list_capture_targets(state: State<'_, AppState>) -> AppResult<CaptureTargetsResponse> {
+    let capture = Arc::clone(&state.capture);
+    let active_target = capture.target();
+    let (microphones, visual_targets) = tokio::task::spawn_blocking(move || {
+        let mics = memo_audio_capture::microphone::list_input_devices().unwrap_or_default();
+        let visuals = capture.list_targets().unwrap_or_default();
+        (mics, visuals)
+    })
+    .await
+    .map_err(|error| AppError::Capture(format!("device enumeration panicked: {error}")))?;
+
+    Ok(CaptureTargetsResponse {
+        microphones,
+        visual_targets,
+        active_target,
+    })
+}
+
+#[tauri::command]
+pub fn set_capture_target(
+    state: State<'_, AppState>,
+    target: CaptureTarget,
+) -> AppResult<CaptureTarget> {
+    state.capture.set_target(target);
+    Ok(state.capture.target())
 }
 
 #[tauri::command]
@@ -79,6 +226,8 @@ pub async fn start_recording(
     state: State<'_, AppState>,
     meeting_id: String,
     capture_system_audio: Option<bool>,
+    microphone_device: Option<String>,
+    capture_target: Option<CaptureTarget>,
 ) -> AppResult<Meeting> {
     let mut active = state.recording.lock().await;
     if let Some(runtime) = active.as_ref() {
@@ -86,6 +235,10 @@ pub async fn start_recording(
             "a recording is already active for meeting {}",
             runtime.meeting_id
         )));
+    }
+
+    if let Some(target) = capture_target {
+        state.capture.set_target(target);
     }
 
     let meeting = state.db.get_meeting(&meeting_id).await?;
@@ -96,22 +249,30 @@ pub async fn start_recording(
         ));
     }
 
-    // Start capture before the database claims the meeting is recording. A
-    // missing or blocked microphone must fail here, not thirty minutes in.
     let media_dir = state.paths.meeting_media_dir(&meeting.id);
     let audio_path = media_dir.join("audio.wav");
     let system_path = want_system.then(|| media_dir.join("audio-system.wav"));
     let (level_tx, mut level_rx) = tokio::sync::mpsc::channel::<AudioLevelSample>(64);
-    let audio = match AudioCaptureSession::start(
-        meeting.id.clone(),
-        audio_path.clone(),
-        system_path.clone(),
-        Some(level_tx),
-    ) {
-        Ok(audio) => audio,
-        Err(error) => {
-            // Roll the meeting out of the recording state so the vault does not
-            // show a phantom take that never captured anything.
+
+    let start_meeting_id = meeting.id.clone();
+    let start_audio_path = audio_path.clone();
+    let start_system_path = system_path.clone();
+    let mic_hint = microphone_device
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty());
+    let audio = match tokio::task::spawn_blocking(move || {
+        AudioCaptureSession::start_with_device(
+            start_meeting_id,
+            start_audio_path,
+            start_system_path,
+            mic_hint.as_deref(),
+            Some(level_tx),
+        )
+    })
+    .await
+    {
+        Ok(Ok(audio)) => audio,
+        Ok(Err(error)) => {
             if let Some(system) = system_path.as_ref() {
                 let _ = std::fs::remove_file(system);
             }
@@ -119,42 +280,68 @@ pub async fn start_recording(
             let _ = state.db.finish_meeting(&meeting.id, 0).await;
             return Err(error);
         }
+        Err(join_error) => {
+            let _ = state.db.finish_meeting(&meeting.id, 0).await;
+            return Err(AppError::Capture(format!(
+                "audio startup task panicked: {join_error}"
+            )));
+        }
     };
 
     let now = Utc::now().timestamp_millis();
-    let scheduler = match CaptureScheduler::start(
-        &state.capture_lease,
-        &meeting.id,
-        meeting.screenshot_interval_sec,
-        now,
-    ) {
-        Ok(scheduler) => scheduler,
-        Err(error) => {
-            // Another capture already holds the lease. Stop this take and put
-            // the meeting back to completed so it does not look live forever.
-            drop(audio);
-            let _ = state.db.finish_meeting(&meeting.id, 0).await;
-            return Err(error);
-        }
+    let effective_interval = if state.brand.manifest().features.enable_periodic_screenshots {
+        meeting.screenshot_interval_sec
+    } else {
+        0
     };
+    let scheduler =
+        match CaptureScheduler::start(&state.capture_lease, &meeting.id, effective_interval, now) {
+            Ok(scheduler) => scheduler,
+            Err(error) => {
+                drop(audio);
+                let _ = state.db.finish_meeting(&meeting.id, 0).await;
+                return Err(error);
+            }
+        };
+
+    // Persist audio paths immediately at recording start so an unexpected quit
+    // or crash never leaves the SQLite row pointing at NULL.
+    let audio_path_str = audio_path.to_string_lossy().into_owned();
+    let system_path_str = system_path
+        .as_ref()
+        .map(|path| path.to_string_lossy().into_owned());
+    state
+        .db
+        .set_audio_file_paths(
+            &meeting.id,
+            Some(&audio_path_str),
+            system_path_str.as_deref(),
+            0,
+        )
+        .await?;
     state
         .db
         .set_meeting_status(&meeting.id, "recording")
         .await?;
+    let meeting = state.db.get_meeting(&meeting.id).await?;
+
     let scheduler = Arc::new(Mutex::new(scheduler));
     let (cancel, cancel_rx) = tokio::sync::watch::channel(false);
+    let (interval_tx, mut interval_rx) = tokio::sync::watch::channel(effective_interval);
     *active = Some(RecordingRuntime {
         meeting_id: meeting.id.clone(),
         started_at_ms: now,
-        interval_sec: meeting.screenshot_interval_sec,
+        interval_sec: effective_interval,
         cancel,
+        interval_tx,
         scheduler: Arc::clone(&scheduler),
         audio: Some(audio),
     });
     drop(active);
 
-    // Forward meters to the HUD. The channel closes when the session is taken
-    // out of `RecordingRuntime`, which ends this task.
+    #[cfg(desktop)]
+    crate::tray::update_tray_recording_state(&app, Some(&meeting.title));
+
     let level_app = app.clone();
     let level_meeting = meeting.id.clone();
     tauri::async_runtime::spawn(async move {
@@ -165,26 +352,38 @@ pub async fn start_recording(
                 rms_dbfs: sample.rms_dbfs,
                 peak_dbfs: sample.peak_dbfs,
                 at_ms: sample.at_ms,
+                echo_bleed: sample.echo_bleed,
+                device_error: sample.device_error,
             };
             let _ = level_app.emit(crate::events::AUDIO_LEVELS, payload);
         }
     });
 
-    if meeting.screenshot_interval_sec > 0 {
+    {
         let app_handle = app.clone();
         let started_at = now;
-        let mut cancel_rx = cancel_rx;
+        let mut screenshot_cancel_rx = cancel_rx.clone();
         let task_scheduler = Arc::clone(&scheduler);
         tauri::async_runtime::spawn(async move {
-            let mut ticker = tokio::time::interval(Duration::from_secs(
-                meeting.screenshot_interval_sec.max(1) as u64,
-            ));
+            let mut current_interval = *interval_rx.borrow();
+            let mut ticker =
+                tokio::time::interval(Duration::from_secs(current_interval.max(1) as u64));
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
-                    _ = ticker.tick() => {
+                    _ = ticker.tick(), if current_interval > 0 => {
                         let now = Utc::now().timestamp_millis();
                         let state = app_handle.state::<AppState>();
+                        let is_paused = state
+                            .recording
+                            .lock()
+                            .await
+                            .as_ref()
+                            .and_then(|rt| rt.audio.as_ref())
+                            .is_some_and(AudioCaptureSession::is_paused);
+                        if is_paused {
+                            continue;
+                        }
                         let mut session = task_scheduler.lock().await;
                         match super::screenshots::capture_once(
                             &state,
@@ -197,12 +396,22 @@ pub async fn start_recording(
                                 let _ = crate::events::screenshot_event(&app_handle, payload);
                             }
                             Err(error) => {
-                                eprintln!("automatic screenshot failed: {error}");
+                                tracing::warn!(error = %error, "automatic screenshot tick failed");
                             }
                         }
                     }
-                    changed = cancel_rx.changed() => {
-                        if changed.is_err() || *cancel_rx.borrow() {
+                    changed_interval = interval_rx.changed() => {
+                        if changed_interval.is_err() {
+                            break;
+                        }
+                        current_interval = *interval_rx.borrow();
+                        if current_interval > 0 {
+                            ticker = tokio::time::interval(Duration::from_secs(current_interval as u64));
+                            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                        }
+                    }
+                    changed = screenshot_cancel_rx.changed() => {
+                        if changed.is_err() || *screenshot_cancel_rx.borrow() {
                             break;
                         }
                     }
@@ -211,8 +420,35 @@ pub async fn start_recording(
         });
     }
 
+    state.is_recording.store(true, Ordering::SeqCst);
+
+    // Warm synthesis model in background during recording so summary is fast at meeting end
+    {
+        let synthesis = state.synthesis.read().await.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = synthesis.warm().await;
+        });
+    }
+
+    // Stream rolling live captions from the active microphone archive when
+    // hardware tier allows keeping ASR warm and an ASR model is installed.
+    crate::asr::spawn_live_caption_worker(
+        app.clone(),
+        meeting.id.clone(),
+        audio_path,
+        meeting.asr_model_id.clone(),
+        cancel_rx,
+    );
+
+    tracing::info!(
+        meeting_id = %meeting.id,
+        system_audio = want_system,
+        screenshot_interval_sec = effective_interval,
+        "started recording session"
+    );
+
     app.emit(
-        "meeting:changed",
+        crate::events::MEETING_CHANGED,
         crate::events::MeetingChangedPayload {
             meeting: meeting.clone(),
         },
@@ -250,8 +486,6 @@ pub async fn stop_recording(
     if let Some(mut runtime) = runtime {
         let _ = runtime.cancel.send(true);
         if let Some(audio) = runtime.audio.take() {
-            // Joining the writers can take a few hundred milliseconds; keep it
-            // off the async runtime's threads.
             match tokio::task::spawn_blocking(move || audio.stop()).await {
                 Ok(Ok(finished)) => outcome = Some(finished),
                 Ok(Err(error)) => failure = Some(error.to_string()),
@@ -287,9 +521,6 @@ pub async fn stop_recording(
         }
     }
 
-    // Trust the audio clock when we have one: it is derived from samples, so it
-    // does not drift with scheduler stalls. A second stop on an already
-    // finalized meeting must not erase its duration.
     let existing_duration = state.db.get_meeting(&meeting_id).await?.duration_ms;
     let duration = outcome
         .as_ref()
@@ -322,12 +553,25 @@ pub async fn stop_recording(
             error: finished.error.clone(),
         }),
         system_error: outcome.as_ref().and_then(|take| take.system_error.clone()),
-        error: failure,
+        error: failure.clone(),
     };
     let _ = crate::events::emit(&app, crate::events::RECORDING_STOPPED, stopped);
+    state.is_recording.store(false, Ordering::SeqCst);
+    if let Some(cached) = state.asr.lock().await.as_mut() {
+        cached.last_used = std::time::Instant::now();
+    }
+    #[cfg(desktop)]
+    crate::tray::update_tray_recording_state(&app, None);
+
+    tracing::info!(
+        meeting_id = %meeting.id,
+        duration_ms = meeting.duration_ms,
+        failure = ?failure,
+        "stopped recording session"
+    );
 
     app.emit(
-        "meeting:changed",
+        crate::events::MEETING_CHANGED,
         crate::events::MeetingChangedPayload {
             meeting: meeting.clone(),
         },
@@ -341,8 +585,42 @@ pub async fn recording_status(state: State<'_, AppState>) -> AppResult<Option<Re
     Ok(state.recording_snapshot().await)
 }
 
-/// What this build can actually capture, so the UI can enable or disable
-/// toggles from facts instead of a hardcoded platform list.
+#[tauri::command]
+pub async fn pause_recording(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> AppResult<RecordingSnapshot> {
+    let active = state.recording.lock().await;
+    let runtime = active
+        .as_ref()
+        .filter(|rt| rt.meeting_id == meeting_id)
+        .ok_or_else(|| {
+            AppError::Capture(format!("meeting {meeting_id} is not actively recording"))
+        })?;
+    if let Some(audio) = runtime.audio.as_ref() {
+        audio.pause();
+    }
+    Ok(runtime.snapshot())
+}
+
+#[tauri::command]
+pub async fn resume_recording(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> AppResult<RecordingSnapshot> {
+    let active = state.recording.lock().await;
+    let runtime = active
+        .as_ref()
+        .filter(|rt| rt.meeting_id == meeting_id)
+        .ok_or_else(|| {
+            AppError::Capture(format!("meeting {meeting_id} is not actively recording"))
+        })?;
+    if let Some(audio) = runtime.audio.as_ref() {
+        audio.resume();
+    }
+    Ok(runtime.snapshot())
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioCapabilities {

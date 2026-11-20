@@ -3,7 +3,7 @@ use tauri::{AppHandle, State};
 
 use crate::error::{AppError, AppResult};
 use crate::events;
-use crate::model_registry::{catalog, HardwareProfile, ModelArtifact};
+use crate::model_registry::{catalog, HardwareProfile, ModelArtifact, ModelRole};
 use crate::models::{DownloadProgress, DownloadReport};
 use crate::state::AppState;
 
@@ -60,6 +60,14 @@ pub async fn download_model(
     state: State<'_, AppState>,
     artifact_id: String,
 ) -> AppResult<Vec<DownloadReport>> {
+    if state.brand.manifest().features.air_gapped_enforcement
+        && std::env::var("MEMO_STRICT_AIRGAP").as_deref() == Ok("1")
+    {
+        return Err(AppError::Download(
+            "strict air-gapped policy is active: stage SHA-256 verified weights in your local models directory instead of downloading over HTTPS"
+                .into(),
+        ));
+    }
     let artifact = find_artifact(&state, &artifact_id)?;
     let mut reports = Vec::with_capacity(artifact.files.len());
     for file in &artifact.files {
@@ -71,12 +79,31 @@ pub async fn download_model(
             .await?;
         reports.push(report);
     }
+
+    if matches!(artifact.role, ModelRole::Slm | ModelRole::ProSlm) {
+        let engine_id = state.refresh_synthesis_engine(Some(&artifact.id)).await;
+        tracing::info!(
+            artifact_id = %artifact.id,
+            engine_id = %engine_id,
+            "hot-swapped synthesis engine after model installation"
+        );
+    }
+
     Ok(reports)
+}
+
+#[tauri::command]
+pub async fn cancel_model_download(
+    state: State<'_, AppState>,
+    artifact_id: String,
+) -> AppResult<bool> {
+    Ok(state.models.cancel(&artifact_id).await)
 }
 
 #[tauri::command]
 pub async fn delete_model(state: State<'_, AppState>, artifact_id: String) -> AppResult<u64> {
     let artifact = find_artifact(&state, &artifact_id)?;
+    let _ = state.models.cancel(&artifact_id).await;
     let mut removed = 0u64;
     for file in &artifact.files {
         let path = artifact.local_path(&state.paths.models_dir, &file.filename);
@@ -94,7 +121,32 @@ pub async fn delete_model(state: State<'_, AppState>, artifact_id: String) -> Ap
             std::fs::remove_file(&partial)?;
         }
     }
+
+    match artifact.role {
+        ModelRole::Asr | ModelRole::FallbackAsr => {
+            let mut cached = state.asr.lock().await;
+            if cached.as_ref().is_some_and(|c| c.model_id == artifact.id) {
+                *cached = None;
+            }
+        }
+        ModelRole::Slm | ModelRole::ProSlm => {
+            let engine_id = state.refresh_synthesis_engine(None).await;
+            tracing::info!(
+                artifact_id = %artifact.id,
+                engine_id = %engine_id,
+                "refreshed synthesis engine after deleting model"
+            );
+        }
+        ModelRole::DiarizationSegmentation | ModelRole::SpeakerEmbedding => {}
+    }
+
     Ok(removed)
+}
+
+#[tauri::command]
+pub async fn unload_models(state: State<'_, AppState>) -> AppResult<()> {
+    state.unload_active_models().await;
+    Ok(())
 }
 
 fn find_artifact(state: &AppState, artifact_id: &str) -> AppResult<ModelArtifact> {

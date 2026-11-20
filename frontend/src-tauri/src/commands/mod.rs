@@ -1,4 +1,5 @@
 pub mod brand;
+pub mod diagnostics;
 pub mod meetings;
 pub mod mobile;
 pub mod models;

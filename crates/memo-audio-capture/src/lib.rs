@@ -34,7 +34,7 @@ pub use mixer::{soft_limit, DualStreamMixer, MixerConfig, TARGET_SAMPLE_RATE};
 pub use resample::SincResampler;
 pub use ring::SampleRing;
 pub use source::{AudioSource, CapturePipeline, SourceKind, SyntheticSource};
-pub use wav::{WavSpec, WavWriter};
+pub use wav::{salvage_wav_file, WavMetadata, WavSpec, WavStreamReader, WavWriter};
 
 #[cfg(feature = "hardware")]
 pub use microphone::{list_input_devices, MicrophoneCapture, MicrophoneInfo};

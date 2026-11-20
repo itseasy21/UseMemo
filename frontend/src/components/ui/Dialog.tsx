@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 
 import { IconButton } from "@/components/ui/IconButton";
@@ -9,9 +9,37 @@ import { cn } from "@/lib/utils";
 const SIZES = {
   sm: "max-w-sm",
   md: "max-w-lg",
-  lg: "max-w-2xl",
+  lg: "max-w-[620px]",
   xl: "max-w-4xl",
 } as const;
+
+let supportsDisplayTransition: boolean | undefined;
+function canTransitionDisplay(): boolean {
+  if (supportsDisplayTransition !== undefined) return supportsDisplayTransition;
+  if (
+    typeof window === "undefined" ||
+    !window.CSS?.supports?.("transition-behavior", "allow-discrete") ||
+    !document.body
+  ) {
+    return false;
+  }
+  const probe = document.createElement("div");
+  probe.style.cssText = "transition: display 1s allow-discrete !important; display: block;";
+  document.body.appendChild(probe);
+  void getComputedStyle(probe).display;
+  probe.style.display = "none";
+  supportsDisplayTransition = getComputedStyle(probe).display === "block";
+  probe.remove();
+  return supportsDisplayTransition;
+}
+
+function supportsTopLayerExit(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    Boolean(window.CSS?.supports?.("overlay", "auto")) &&
+    canTransitionDisplay()
+  );
+}
 
 export function Dialog({
   open,
@@ -34,98 +62,149 @@ export function Dialog({
   className?: string;
   bodyClassName?: string;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const pressedOutsideRef = useRef(false);
   const closeRef = useRef(onOpenChange);
   closeRef.current = onOpenChange;
   const titleId = useId();
   const descriptionId = useId();
 
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const raf = window.requestAnimationFrame(() => {
-      const target = panelRef.current?.querySelector<HTMLElement>(
-        "[autofocus], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])",
-      );
-      target?.focus();
-    });
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeRef.current(false);
+  const requestClose = useCallback(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || !dialog.open) {
+      closeRef.current(false);
+      return;
+    }
+    if (!supportsTopLayerExit()) {
+      dialog.setAttribute("data-closing", "");
+      const animations = dialog.getAnimations({ subtree: true });
+      if (animations.length > 0) {
+        void Promise.race([
+          Promise.allSettled(animations.map((a) => a.finished)),
+          new Promise((r) => window.setTimeout(r, 220)),
+        ]).then(() => {
+          dialog.removeAttribute("data-closing");
+          if (dialog.open) dialog.close();
+          closeRef.current(false);
+        });
         return;
       }
-      if (event.key !== "Tab") return;
-      const focusables = panelRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
-      );
-      if (!focusables || focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      } else if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
+      dialog.removeAttribute("data-closing");
+    }
+    if (dialog.open) dialog.close();
+    closeRef.current(false);
+  }, []);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    if (open) {
+      dialog.removeAttribute("data-closing");
+      if (!dialog.open) {
+        dialog.showModal();
       }
+      const raf = window.requestAnimationFrame(() => {
+        const target = dialog.querySelector<HTMLElement>(
+          "[autofocus], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])",
+        );
+        target?.focus();
+      });
+      return () => window.cancelAnimationFrame(raf);
+    } else if (dialog.open) {
+      dialog.close();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || !open) return;
+
+    const handleCancel = (event: Event) => {
+      event.preventDefault();
+      requestClose();
     };
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.cancelAnimationFrame(raf);
-      document.removeEventListener("keydown", handleKeyDown);
-      previous?.focus();
+    const handleClose = () => {
+      dialog.returnValue = "";
+      closeRef.current(false);
     };
-  }, [open]);
+
+    dialog.addEventListener("cancel", handleCancel);
+    dialog.addEventListener("close", handleClose);
+    return () => {
+      dialog.removeEventListener("cancel", handleCancel);
+      dialog.removeEventListener("close", handleClose);
+    };
+  }, [open, requestClose]);
 
   if (!open) return null;
 
+  const isOutsideDialogBounds = (clientX: number, clientY: number, el: HTMLDialogElement) => {
+    const rect = el.getBoundingClientRect();
+    return (
+      clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom
+    );
+  };
+
   return (
-    <div
-      className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-[oklch(0.08_0.01_255/0.62)] p-4 pt-[10vh] backdrop-blur-[2px]"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onOpenChange(false);
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      aria-describedby={description ? descriptionId : undefined}
+      {...({ closedby: "any" } as Record<string, string>)}
+      onPointerDown={(event) => {
+        if (typeof HTMLDialogElement !== "undefined" && "closedBy" in HTMLDialogElement.prototype) {
+          return;
+        }
+        pressedOutsideRef.current = isOutsideDialogBounds(
+          event.clientX,
+          event.clientY,
+          event.currentTarget,
+        );
       }}
+      onPointerUp={(event) => {
+        if (typeof HTMLDialogElement !== "undefined" && "closedBy" in HTMLDialogElement.prototype) {
+          return;
+        }
+        if (
+          pressedOutsideRef.current &&
+          isOutsideDialogBounds(event.clientX, event.clientY, event.currentTarget)
+        ) {
+          requestClose();
+        }
+        pressedOutsideRef.current = false;
+      }}
+      className={cn(
+        "um-modal glass m-auto mt-[8vh] w-[calc(100%-2rem)] overflow-hidden rounded-[22px] p-0 text-text-primary",
+        SIZES[size],
+        className,
+      )}
     >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={description ? descriptionId : undefined}
-        className={cn(
-          "glass relative w-full overflow-hidden rounded-[calc(var(--radius-brand)+4px)] shadow-[0_40px_120px_-30px_oklch(0_0_0/0.65)]",
-          SIZES[size],
-          className,
-        )}
-      >
-        <header className="flex items-start justify-between gap-6 border-b border-border-subtle px-5 py-4">
-          <div className="min-w-0">
-            <h2
-              id={titleId}
-              className="text-[15px] font-semibold tracking-[-0.01em] text-text-primary"
-            >
-              {title}
-            </h2>
-            {description && (
-              <p id={descriptionId} className="mt-1 text-xs leading-5 text-text-muted">
-                {description}
-              </p>
-            )}
-          </div>
-          <IconButton label="Close dialog" size="sm" onClick={() => onOpenChange(false)}>
-            <X className="size-4" />
-          </IconButton>
-        </header>
-        <div className={cn("max-h-[62vh] overflow-y-auto p-5", bodyClassName)}>{children}</div>
-        {footer && (
-          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle bg-bg-primary/25 px-5 py-3">
-            {footer}
-          </footer>
-        )}
-      </div>
-    </div>
+      <header className="flex items-start justify-between gap-6 border-b border-[var(--glass-border)] px-6 py-4.5">
+        <div className="min-w-0">
+          <h2
+            id={titleId}
+            className="text-[16px] font-semibold tracking-[-0.015em] text-text-primary"
+          >
+            {title}
+          </h2>
+          {description && (
+            <p id={descriptionId} className="mt-1 text-[12.5px] leading-5 text-text-muted">
+              {description}
+            </p>
+          )}
+        </div>
+        <IconButton label="Close dialog" size="sm" onClick={requestClose}>
+          <X className="size-4" aria-hidden="true" />
+        </IconButton>
+      </header>
+      <div className={cn("max-h-[68vh] overflow-y-auto px-6 py-5", bodyClassName)}>{children}</div>
+      {footer && (
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-6 py-3.5">
+          {footer}
+        </footer>
+      )}
+    </dialog>
   );
 }

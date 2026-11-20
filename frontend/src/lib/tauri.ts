@@ -1,11 +1,39 @@
 /**
- * Typed, fail-soft bridge to the Tauri host.
+ * Typed bridge to the Tauri host.
  *
  * The UI is a static Next export and also runs in a plain browser (design
- * preview, docs, CI screenshots). Every native call is therefore guarded by
- * `isTauri()` and the Tauri packages are imported lazily so the browser bundle
- * never tries to resolve a runtime that is not there.
+ * preview, docs, CI visual checks). Every native call is guarded by `isTauri()`
+ * so browser previews fall back cleanly while Tauri runtime failures surface
+ * typed `HostError` instances instead of silently disappearing.
  */
+
+import { convertFileSrc } from "@tauri-apps/api/core";
+
+export class HostError extends Error {
+  readonly command: string;
+
+  constructor(command: string, cause: unknown) {
+    const raw =
+      cause instanceof Error
+        ? cause.message
+        : typeof cause === "string"
+          ? cause
+          : JSON.stringify(cause ?? "unknown host error");
+    super(raw || `Host command "${command}" failed`);
+    this.name = "HostError";
+    this.command = command;
+  }
+}
+
+export function formatHostError(error: unknown, fallback = "Local host operation failed."): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+  return fallback;
+}
 
 export type AudioLevelsPayload = {
   meetingId: string;
@@ -13,6 +41,8 @@ export type AudioLevelsPayload = {
   rmsDbfs: number;
   peakDbfs: number;
   atMs: number;
+  echoBleed?: boolean;
+  deviceError?: string | null;
 };
 
 export type AsrSegmentDeltaPayload = {
@@ -124,6 +154,16 @@ export type ModelDownloadProgressPayload = {
   phase: DownloadPhase;
 };
 
+export type TrayActionPayload = {
+  action: string;
+  microphone: string;
+};
+
+export type TrayMicrophonePayload = {
+  microphone: string;
+  label: string;
+};
+
 export type HostEventMap = {
   "audio:levels": AudioLevelsPayload;
   "asr:segment-delta": AsrSegmentDeltaPayload;
@@ -133,6 +173,8 @@ export type HostEventMap = {
   "models:download-progress": ModelDownloadProgressPayload;
   "meeting:changed": MeetingChangedPayload;
   "recording:stopped": RecordingStoppedPayload;
+  "tray:action": TrayActionPayload;
+  "tray:microphone-changed": TrayMicrophonePayload;
 };
 
 export const HOST_EVENTS = {
@@ -144,20 +186,55 @@ export const HOST_EVENTS = {
   modelDownloadProgress: "models:download-progress",
   meetingChanged: "meeting:changed",
   recordingStopped: "recording:stopped",
+  trayAction: "tray:action",
+  trayMicrophoneChanged: "tray:microphone-changed",
 } as const satisfies Record<string, keyof HostEventMap>;
 
 export type UnlistenFn = () => void;
 
 /** True only inside a Tauri webview (v2 exposes `__TAURI_INTERNALS__`). */
 export function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  return (
+    typeof window !== "undefined" &&
+    ("__TAURI_INTERNALS__" in window || Boolean((window as { isTauri?: boolean }).isTauri))
+  );
 }
 
 /**
- * Invoke a host command. In the browser this resolves to `null` instead of
- * throwing so callers can fall back to the local demo vault. Host errors are
- * logged and also return `null`; a future transport-error channel can surface
- * them to the UI without changing call sites.
+ * Convert a local vault media file path (`.wav`, `.webp`) into a Tauri
+ * `asset://` URL scoped to `$DATA/<storageDirName>/media/**`.
+ */
+export function toAssetUrl(filePath: string | null | undefined): string | null {
+  if (!filePath || !isTauri()) return null;
+  try {
+    return convertFileSrc(filePath);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Invoke a host command with strict error propagation when running inside Tauri.
+ *
+ * - Browser preview (`!isTauri()`): resolves to `null` so callers can render demo data.
+ * - Tauri host (`isTauri()`): resolves to `T`, or throws `HostError` with the Rust message.
+ */
+export async function invokeHost<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<T | null> {
+  if (!isTauri()) return null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<T>(command, args);
+  } catch (error) {
+    throw new HostError(command, error);
+  }
+}
+
+/**
+ * Soft read-only probe: returns `null` outside Tauri or if an optional background
+ * query fails, logging a diagnostic warning instead of crashing an effect.
  */
 export async function invokeCommand<T>(
   command: string,
@@ -174,18 +251,21 @@ export async function invokeCommand<T>(
 }
 
 /**
- * Invoke a host command and preserve the host error message.
- *
- * `invokeCommand` intentionally swallows transport failures so the demo UI can
- * fall back to local data. User-triggered work (transcription, downloads) needs
- * the real reason, so it uses this instead.
+ * Invoke a host command that requires Tauri and always throws `HostError` on failure.
  */
 export async function invokeRequired<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(command, args);
+  if (!isTauri()) {
+    throw new HostError(command, "Tauri host runtime is not available in browser preview");
+  }
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<T>(command, args);
+  } catch (error) {
+    throw new HostError(command, error);
+  }
 }
 
 /**

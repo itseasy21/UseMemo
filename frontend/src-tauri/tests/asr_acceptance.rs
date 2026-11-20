@@ -21,6 +21,8 @@
 //!   "The quarterly launch review starts on Monday. We decided to delay the beta by two weeks."
 //! ```
 
+#![cfg(feature = "asr")]
+
 use std::env;
 use std::path::PathBuf;
 
@@ -38,6 +40,7 @@ fn sample_rate_16k(samples: Vec<f32>, rate: u32) -> Vec<f32> {
 }
 
 #[test]
+#[ignore = "requires local ggml-small-q5_1.bin and speech WAV; run with MEMO_ASR_E2E=1 cargo test -- --ignored"]
 fn whisper_transcribes_known_speech_with_timestamps() {
     if env::var("MEMO_ASR_E2E").as_deref() != Ok("1") {
         eprintln!("skipping: set MEMO_ASR_E2E=1 to run the real ASR acceptance test");

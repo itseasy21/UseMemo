@@ -64,6 +64,8 @@ pub enum WorkerRequest {
         top_p: f32,
         top_k: u32,
         max_output_tokens: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grammar: Option<String>,
     },
     Ping,
     Shutdown,
@@ -231,6 +233,7 @@ mod tests {
                 top_p: 1.0,
                 top_k: 1,
                 max_output_tokens: 128,
+                grammar: None,
             },
         )
         .unwrap();
