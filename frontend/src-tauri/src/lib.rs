@@ -81,6 +81,7 @@ pub fn run() {
             commands::meetings::get_meeting,
             commands::meetings::finish_meeting,
             commands::meetings::delete_meeting,
+            commands::meetings::discard_failed_meeting,
             commands::meetings::set_meeting_starred,
             commands::meetings::set_meeting_tags,
             commands::meetings::get_meeting_tags,

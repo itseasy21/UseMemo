@@ -109,6 +109,23 @@ pub async fn delete_meeting(state: State<'_, AppState>, meeting_id: String) -> A
     Ok(())
 }
 
+/// Remove a meeting that never entered recording. Unlike user-initiated
+/// deletion, this intentionally does not touch export bundles.
+#[tauri::command]
+pub async fn discard_failed_meeting(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> AppResult<()> {
+    state.db.delete_meeting(&meeting_id).await?;
+    let media = state.paths.meeting_media_dir(&meeting_id);
+    if let Err(error) = std::fs::remove_dir_all(media) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(error.into());
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn set_meeting_starred(
     app: AppHandle,

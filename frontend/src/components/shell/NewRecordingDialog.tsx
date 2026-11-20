@@ -36,7 +36,7 @@ import {
   configureAudioSession,
   createMeeting,
   deactivateAudioSession,
-  deleteMeeting,
+  discardFailedMeeting,
   getAudioCapabilities,
   listCaptureTargets,
   listModels,
@@ -458,7 +458,7 @@ export function NewRecordingDialog() {
       } catch (error) {
         if (pendingMeetingId) {
           try {
-            await deleteMeeting(pendingMeetingId);
+            await discardFailedMeeting(pendingMeetingId);
           } catch {
             // The host also removes failed starts; a missing row is expected.
           }

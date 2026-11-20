@@ -368,6 +368,10 @@ export function deleteMeeting(meetingId: string) {
   return invokeHost<void>("delete_meeting", { meetingId });
 }
 
+export function discardFailedMeeting(meetingId: string) {
+  return invokeHost<void>("discard_failed_meeting", { meetingId });
+}
+
 export function setMeetingStarred(meetingId: string, starred: boolean) {
   return invokeHost<MeetingRecord>("set_meeting_starred", { meetingId, starred });
 }
