@@ -177,6 +177,7 @@ export default function HudPage() {
 
   useHostEvent(HOST_EVENTS.callDismissed, (payload) => {
     setDetected((current) => {
+      if (!current) return null;
       if (payload.callId !== null && current?.callId !== payload.callId) return current;
       void resizeHud(false);
       void hideHud();
