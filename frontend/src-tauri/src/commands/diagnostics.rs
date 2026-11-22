@@ -4,7 +4,7 @@ use chrono::Utc;
 use serde::Serialize;
 use tauri::State;
 
-use crate::commands::meetings::{audio_capabilities, AudioCapabilities};
+use crate::commands::meetings::{audio_capabilities_for, AudioCapabilities};
 use crate::error::AppResult;
 use crate::logging::{active_log_dir, read_recent_logs};
 use crate::model_registry::{catalog, HardwareProfile};
@@ -70,7 +70,7 @@ async fn collect_bundle(state: &AppState, log_limit: usize) -> AppResult<Diagnos
         override_applied: state.brand.override_applied(),
         synthesis_engine_id,
         hardware: state.hardware.clone(),
-        audio_capabilities: audio_capabilities(),
+        audio_capabilities: audio_capabilities_for(state),
         models,
         vault_counts,
         recovered_sessions_on_boot: state.recovered_sessions,

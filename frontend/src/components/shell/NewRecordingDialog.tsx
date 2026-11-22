@@ -37,11 +37,13 @@ import {
   configureAudioSession,
   createMeeting,
   deactivateAudioSession,
+  discardFailedMeeting,
   getAudioCapabilities,
   listCaptureTargets,
   listModels,
   pauseRecording,
   requestMicrophonePermission,
+  requestSystemAudioAccess,
   resumeRecording,
   startRecording,
   stopRecording,
@@ -118,6 +120,8 @@ export function NewRecordingDialog() {
   const [micLevel, setMicLevel] = useState(0);
   const [systemLevel, setSystemLevel] = useState(0);
   const [noSignal, setNoSignal] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [captureWarning, setCaptureWarning] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<Awaited<
     ReturnType<typeof getAudioCapabilities>
   > | null>(null);
@@ -137,6 +141,10 @@ export function NewRecordingDialog() {
   const modKey = modKeyPrefix();
 
   const systemAvailable = capabilities?.systemAudio ?? !isTauri();
+  const systemPermissionMissing = Boolean(
+    capabilities?.systemAudioPermissionRequired && !capabilities.systemAudioPermissionGranted,
+  );
+  const screenshotAvailable = capabilities?.screenshotCapture ?? !isTauri();
 
   useEffect(() => {
     if (!open || !isTauri()) return;
@@ -147,9 +155,11 @@ export function NewRecordingDialog() {
         setCapabilities(nextCaps);
         setHub(nextHub);
         setTargets(nextTargets);
-        if (nextCaps?.systemAudio) {
-          setSources((curr) => ({ ...curr, system: true }));
-        }
+        const systemReady = Boolean(
+          nextCaps?.systemAudio &&
+          (!nextCaps.systemAudioPermissionRequired || nextCaps.systemAudioPermissionGranted),
+        );
+        setSources((curr) => ({ ...curr, system: systemReady }));
       },
     );
     return () => {
@@ -159,10 +169,23 @@ export function NewRecordingDialog() {
 
   useEffect(() => {
     if (!open) return;
-    if (capabilities && !capabilities.systemAudio) {
+    if (
+      capabilities &&
+      (!capabilities.systemAudio ||
+        (capabilities.systemAudioPermissionRequired && !capabilities.systemAudioPermissionGranted))
+    ) {
       setSources((current) => (current.system ? { ...current, system: false } : current));
     }
+    if (capabilities && !capabilities.screenshotCapture) {
+      setSources((current) => (current.screenshots ? { ...current, screenshots: false } : current));
+    }
   }, [open, capabilities]);
+
+  useEffect(() => {
+    if (!open) return;
+    setStartError(null);
+    setCaptureWarning(null);
+  }, [open]);
 
   const asrOptions = useMemo<ProvisionedModelOption[]>(() => {
     if (isTauri() && hub) {
@@ -328,6 +351,21 @@ export function NewRecordingDialog() {
     setSources((current) => ({ ...current, [source]: !current[source] }));
   };
 
+  const grantSystemAudioAccess = async () => {
+    setStartError(null);
+    const granted = await requestSystemAudioAccess();
+    const nextCapabilities = await getAudioCapabilities();
+    if (nextCapabilities) setCapabilities(nextCapabilities);
+    if (granted || nextCapabilities?.systemAudioPermissionGranted) {
+      setSources((current) => ({ ...current, system: true }));
+      setCaptureWarning(null);
+      return;
+    }
+    setCaptureWarning(
+      "Allow Screen Recording for this app in System Settings, then relaunch it. Your microphone can still record now.",
+    );
+  };
+
   const handleTogglePause = async () => {
     if (!started) return;
     if (!isTauri() || !meetingId) {
@@ -346,6 +384,8 @@ export function NewRecordingDialog() {
 
   const start = () => {
     if (starting || started) return;
+    setStartError(null);
+    setCaptureWarning(null);
     const attempt = attemptRef.current + 1;
     attemptRef.current = attempt;
     setStarted(true);
@@ -355,16 +395,15 @@ export function NewRecordingDialog() {
     if (!isTauri()) return;
     setStarting(true);
     void (async () => {
+      let pendingMeetingId: string | null = null;
       try {
         const permission = await requestMicrophonePermission();
         if (permission !== "granted") {
           if (attemptRef.current === attempt) {
             setStarting(false);
             setStarted(false);
-            pushToast(
-              "Microphone access is off",
-              "Allow microphone access in your device settings, then record again.",
-              "danger",
+            setStartError(
+              "Microphone access is off. Allow it in your device settings, then try again.",
             );
           }
           return;
@@ -374,10 +413,8 @@ export function NewRecordingDialog() {
           if (attemptRef.current === attempt) {
             setStarting(false);
             setStarted(false);
-            pushToast(
-              "Could not prepare the audio session",
-              "Close other exclusive audio apps or check system audio settings, then try again.",
-              "danger",
+            setStartError(
+              "Could not prepare the audio session. Close other audio apps or check system audio settings, then try again.",
             );
           }
           return;
@@ -393,6 +430,7 @@ export function NewRecordingDialog() {
         if (!meeting) {
           throw new Error("Could not create local meeting record.");
         }
+        pendingMeetingId = meeting.id;
         let captureTarget: CaptureTargetInput = { kind: "auto" };
         if (selectedTargetKey.startsWith("display:")) {
           const id = Number(selectedTargetKey.slice("display:".length));
@@ -406,8 +444,9 @@ export function NewRecordingDialog() {
           microphoneDevice: selectedMic || null,
           captureTarget,
         });
+        pendingMeetingId = null;
         if (attemptRef.current !== attempt) {
-          if (recording) await stopRecording(recording.id);
+          if (recording) await stopRecording(recording.meeting.id);
           void deactivateAudioSession();
           return;
         }
@@ -415,13 +454,21 @@ export function NewRecordingDialog() {
         if (!recording) {
           throw new Error("Could not start local audio capture.");
         }
-        setMeetingId(recording.id);
+        setMeetingId(recording.meeting.id);
+        setCaptureWarning(recording.systemAudioWarning);
       } catch (error) {
+        if (pendingMeetingId) {
+          try {
+            await discardFailedMeeting(pendingMeetingId);
+          } catch {
+            // The host also removes failed starts; a missing row is expected.
+          }
+        }
         if (attemptRef.current === attempt) {
           setStarting(false);
           setStarted(false);
           void deactivateAudioSession();
-          pushToast("Could not start local recording", formatHostError(error), "danger");
+          setStartError(formatHostError(error));
         }
       }
     })();
@@ -583,6 +630,18 @@ export function NewRecordingDialog() {
         </>
       }
     >
+      {startError && (
+        <div className="mb-4 rounded-xl border border-recording-pulse/35 bg-recording-pulse/10 px-4 py-3 text-xs leading-5 text-recording-pulse">
+          <p className="font-semibold">Recording could not start</p>
+          <p className="mt-0.5">{startError}</p>
+        </div>
+      )}
+      {captureWarning && (
+        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-4 py-3 text-xs leading-5 text-text-primary">
+          <p className="font-semibold text-amber-400">Recording with microphone only</p>
+          <p className="mt-0.5 text-text-muted">{captureWarning}</p>
+        </div>
+      )}
       {started ? (
         <div className="space-y-4">
           {/* Glowing Live Hero Banner */}
@@ -776,11 +835,15 @@ export function NewRecordingDialog() {
               {/* System Audio Loopback Card */}
               <div
                 onClick={() => {
-                  if (systemAvailable) toggleSource("system");
+                  if (systemPermissionMissing) {
+                    void grantSystemAudioAccess();
+                  } else if (systemAvailable) {
+                    toggleSource("system");
+                  }
                 }}
                 className={cn(
                   "glass-subtle flex cursor-pointer flex-col justify-between rounded-2xl p-3.5 transition",
-                  sources.system && systemAvailable
+                  sources.system && systemAvailable && !systemPermissionMissing
                     ? "border-accent-secondary/35 bg-[color-mix(in_oklab,var(--brand-accent-secondary)_6%,var(--glass-surface-subtle))]"
                     : "opacity-80 hover:opacity-100",
                   !systemAvailable && "cursor-not-allowed opacity-55",
@@ -791,7 +854,7 @@ export function NewRecordingDialog() {
                     <span
                       className={cn(
                         "flex size-9 shrink-0 items-center justify-center rounded-xl border",
-                        sources.system && systemAvailable
+                        sources.system && systemAvailable && !systemPermissionMissing
                           ? "border-accent-secondary/35 bg-accent-secondary/14 text-accent-secondary"
                           : "border-[var(--glass-border-strong)] bg-[var(--glass-surface)] text-text-muted",
                       )}
@@ -807,7 +870,18 @@ export function NewRecordingDialog() {
                       </p>
                     </div>
                   </div>
-                  {systemAvailable ? (
+                  {systemPermissionMissing ? (
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void grantSystemAudioAccess();
+                      }}
+                    >
+                      Grant access
+                    </Button>
+                  ) : systemAvailable ? (
                     <Toggle
                       checked={sources.system}
                       onChange={() => toggleSource("system")}
@@ -820,11 +894,13 @@ export function NewRecordingDialog() {
                 </div>
 
                 <p className="mt-3 text-[11px] leading-4 text-text-muted">
-                  {sources.system && systemAvailable
-                    ? "Recommended for online meetings. Keeps voices on a separate track."
-                    : systemAvailable
-                      ? "Turn this on for online meetings."
-                      : "Your microphone will still be recorded. Call audio is not supported on this platform yet."}
+                  {systemPermissionMissing
+                    ? "macOS needs Screen Recording access. The microphone works without it."
+                    : sources.system && systemAvailable
+                      ? "Recommended for online meetings. Keeps voices on a separate track."
+                      : systemAvailable
+                        ? "Turn this on for online meetings."
+                        : "Your microphone will still be recorded. Call audio is not supported on this platform yet."}
                 </p>
               </div>
             </div>
@@ -886,7 +962,7 @@ export function NewRecordingDialog() {
               </div>
 
               {/* Visual Slide Capture Card with Inline Cadence + Target Controls */}
-              {BRAND.features.enablePeriodicScreenshots && (
+              {BRAND.features.enablePeriodicScreenshots && screenshotAvailable && (
                 <div className="glass-subtle rounded-2xl p-3.5 transition">
                   <div
                     onClick={() => toggleSource("screenshots")}

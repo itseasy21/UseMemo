@@ -195,6 +195,7 @@ pub struct AudioCaptureSession {
     meeting_id: String,
     info: MicrophoneInfo,
     system_device: Option<String>,
+    system_start_error: Option<String>,
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     clock: Arc<ActiveClock>,
@@ -223,19 +224,11 @@ impl AudioCaptureSession {
     ) -> AppResult<Self> {
         let microphone = MicrophoneCapture::start(microphone_device).map_err(capture_error)?;
         let info = microphone.info().clone();
-        let system = match system_destination.as_ref() {
-            Some(_) => Some(SystemAudioCapture::start()?),
-            None => None,
-        };
-        let system_device = system
-            .as_ref()
-            .map(|capture| capture.device_name().to_string());
-        let has_system_stream = system.is_some();
-
         let meeting_id = meeting_id.into();
         let clock = Arc::new(ActiveClock::new());
         let stop = Arc::new(AtomicBool::new(false));
         let paused = Arc::new(AtomicBool::new(false));
+        let has_system_stream = Arc::new(AtomicBool::new(false));
         let system_rms_bits = Arc::new(AtomicU32::new((-120.0f32).to_bits()));
         let mut workers = Vec::with_capacity(2);
 
@@ -243,6 +236,7 @@ impl AudioCaptureSession {
         let thread_stop = Arc::clone(&stop);
         let thread_paused = Arc::clone(&paused);
         let thread_clock = Arc::clone(&clock);
+        let thread_has_system = Arc::clone(&has_system_stream);
         let thread_sys_rms = Arc::clone(&system_rms_bits);
         let thread_levels = levels.clone();
         let mic_destination = destination.clone();
@@ -256,20 +250,41 @@ impl AudioCaptureSession {
                     &thread_stop,
                     &thread_paused,
                     &thread_clock,
-                    has_system_stream,
+                    thread_has_system,
                     &thread_sys_rms,
                     thread_levels,
                 )
             })
             .map_err(|error| {
+                remove_partial(&[destination.as_path()]);
                 AppError::Capture(format!("cannot spawn the audio writer thread: {error}"))
             })?;
         workers.push((AudioChannel::Microphone, mic_worker));
 
+        // Start loopback only after the microphone writer is draining. macOS
+        // may hold this call behind a first-run permission prompt; keeping the
+        // writer live prevents the bounded microphone queue from dropping the
+        // first seconds of the take while loopback resolves or times out.
+        let (system, mut system_start_error) = match system_destination.as_ref() {
+            Some(_) => match SystemAudioCapture::start() {
+                Ok(capture) => (Some(capture), None),
+                Err(error) => {
+                    tracing::warn!(error = %error, "system audio unavailable; continuing microphone-only");
+                    (None, Some(error.to_string()))
+                }
+            },
+            None => (None, None),
+        };
+        let system_device = system
+            .as_ref()
+            .map(|capture| capture.device_name().to_string());
+
         if let (Some(system), Some(system_path)) = (system, system_destination) {
+            has_system_stream.store(true, Ordering::Release);
             let thread_stop = Arc::clone(&stop);
             let thread_paused = Arc::clone(&paused);
             let thread_clock = Arc::clone(&clock);
+            let thread_has_system = Arc::clone(&has_system_stream);
             let thread_sys_rms = Arc::clone(&system_rms_bits);
             let thread_system_path = system_path.clone();
             let system_worker = std::thread::Builder::new()
@@ -282,7 +297,7 @@ impl AudioCaptureSession {
                         &thread_stop,
                         &thread_paused,
                         &thread_clock,
-                        true,
+                        thread_has_system,
                         &thread_sys_rms,
                         levels,
                     )
@@ -290,14 +305,11 @@ impl AudioCaptureSession {
             match system_worker {
                 Ok(worker) => workers.push((AudioChannel::System, worker)),
                 Err(error) => {
-                    stop.store(true, Ordering::Release);
-                    if let Some((_, mic_worker)) = workers.pop() {
-                        let _ = mic_worker.join();
-                    }
-                    remove_partial(&[destination.as_path(), system_path.as_path()]);
-                    return Err(AppError::Capture(format!(
-                        "cannot spawn the system-audio writer thread: {error}"
-                    )));
+                    let message = format!("cannot spawn the system-audio writer thread: {error}");
+                    tracing::warn!(error = %message, "system audio unavailable; continuing microphone-only");
+                    system_start_error = Some(message);
+                    has_system_stream.store(false, Ordering::Release);
+                    remove_partial(&[system_path.as_path()]);
                 }
             }
         }
@@ -306,6 +318,7 @@ impl AudioCaptureSession {
             meeting_id,
             info,
             system_device,
+            system_start_error,
             stop,
             paused,
             clock,
@@ -323,6 +336,10 @@ impl AudioCaptureSession {
 
     pub fn system_device(&self) -> Option<&str> {
         self.system_device.as_deref()
+    }
+
+    pub fn system_start_error(&self) -> Option<&str> {
+        self.system_start_error.as_deref()
     }
 
     pub fn pause(&self) {
@@ -358,7 +375,10 @@ impl AudioCaptureSession {
         self.clock.set_paused(false);
         self.stop.store(true, Ordering::Release);
 
-        let mut take = AudioCaptureTake::default();
+        let mut take = AudioCaptureTake {
+            system_error: self.system_start_error.clone(),
+            ..AudioCaptureTake::default()
+        };
         for (channel, worker) in self.workers.drain(..) {
             match worker.join() {
                 Ok(Ok(outcome)) => take.push(outcome),
@@ -491,7 +511,7 @@ fn run_source<F: SourceFeed>(
     stop: &Arc<AtomicBool>,
     paused: &Arc<AtomicBool>,
     clock: &Arc<ActiveClock>,
-    has_system_stream: bool,
+    has_system_stream: Arc<AtomicBool>,
     system_rms_bits: &Arc<AtomicU32>,
     levels: Option<Sender<AudioLevelSample>>,
 ) -> AppResult<AudioCaptureOutcome> {
@@ -577,7 +597,7 @@ fn run_source<F: SourceFeed>(
             let mut echo_bleed = false;
             if channel == AudioChannel::System {
                 system_rms_bits.store(frame.rms_dbfs.to_bits(), Ordering::Relaxed);
-            } else if has_system_stream {
+            } else if has_system_stream.load(Ordering::Acquire) {
                 let sys_rms = f32::from_bits(system_rms_bits.load(Ordering::Relaxed));
                 if is_echo_bleed(frame.rms_dbfs, sys_rms) {
                     echo_bleed = true;

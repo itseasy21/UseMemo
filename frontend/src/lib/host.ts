@@ -243,6 +243,9 @@ export type AudioCapabilitiesRecord = {
   microphone: boolean;
   systemAudio: boolean;
   systemBackend: "screencapturekit" | "wasapi" | string | null;
+  systemAudioPermissionRequired: boolean;
+  systemAudioPermissionGranted: boolean;
+  screenshotCapture: boolean;
   diarization: boolean;
   echoCancellation: boolean;
   archiveSampleRate: number;
@@ -365,6 +368,10 @@ export function deleteMeeting(meetingId: string) {
   return invokeHost<void>("delete_meeting", { meetingId });
 }
 
+export function discardFailedMeeting(meetingId: string) {
+  return invokeHost<void>("discard_failed_meeting", { meetingId });
+}
+
 export function setMeetingStarred(meetingId: string, starred: boolean) {
   return invokeHost<MeetingRecord>("set_meeting_starred", { meetingId, starred });
 }
@@ -402,13 +409,22 @@ export type StartRecordingOptions = {
   captureTarget?: CaptureTargetInput | null;
 };
 
+export type StartRecordingOutcomeRecord = {
+  meeting: MeetingRecord;
+  systemAudioWarning: string | null;
+};
+
 export function startRecording(meetingId: string, options: StartRecordingOptions = {}) {
-  return invokeHost<MeetingRecord>("start_recording", {
+  return invokeHost<StartRecordingOutcomeRecord>("start_recording", {
     meetingId,
     captureSystemAudio: options.captureSystemAudio ?? false,
     microphoneDevice: options.microphoneDevice ?? null,
     captureTarget: options.captureTarget ?? null,
   });
+}
+
+export function requestSystemAudioAccess() {
+  return invokeCommand<boolean>("request_system_audio_access");
 }
 
 export function pauseRecording(meetingId: string) {

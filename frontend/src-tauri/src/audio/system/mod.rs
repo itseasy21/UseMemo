@@ -48,6 +48,30 @@ pub fn system_audio_backend() -> Option<&'static str> {
     }
 }
 
+/// Whether the OS permission needed by the loopback backend is currently granted.
+pub fn system_audio_permission_granted() -> bool {
+    #[cfg(all(feature = "system-audio", target_os = "macos"))]
+    {
+        macos::permission_granted()
+    }
+    #[cfg(not(all(feature = "system-audio", target_os = "macos")))]
+    {
+        true
+    }
+}
+
+/// Ask the OS for loopback permission when the platform requires it.
+pub fn request_system_audio_permission() -> bool {
+    #[cfg(all(feature = "system-audio", target_os = "macos"))]
+    {
+        macos::request_permission()
+    }
+    #[cfg(not(all(feature = "system-audio", target_os = "macos")))]
+    {
+        system_audio_supported()
+    }
+}
+
 /// A running system-audio source.
 ///
 /// The real implementations live in the platform modules; this stub keeps the
