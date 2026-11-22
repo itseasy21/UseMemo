@@ -58,9 +58,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macos-arm64
-            os: macos-14
-            platform: macos
+          # macos-arm64 omitted: private repos have no free hosted macOS
+          # runners and the job is cancelled instantly. macOS is covered by
+          # manual install-level testing until a macOS runner is available.
           - name: linux-x86_64
             os: ubuntu-24.04
             platform: linux
