@@ -81,7 +81,7 @@ without a certificate. `APPLE_SIGNING_IDENTITY` overrides the config at build ti
 
 ```bash
 pnpm package:release
-open "target/release/bundle/macos/Use Memo.app"
+open "target/release/bundle/macos/UseMemo.app"
 ```
 
 The packaging script verifies the signature with `codesign --verify --deep --strict`, confirms the
@@ -117,10 +117,10 @@ Tauri staples the notarization ticket to the app when notarization succeeds. If 
 manually, staple the DMG as well:
 
 ```bash
-codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "Use Memo_0.1.0_aarch64.dmg"
-xcrun notarytool submit "Use Memo.dmg" --keychain-profile memo-release --wait
-xcrun stapler staple "Use Memo.dmg"
-xcrun stapler validate "Use Memo.dmg"
+codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "UseMemo_0.1.0_aarch64.dmg"
+xcrun notarytool submit "UseMemo.dmg" --keychain-profile memo-release --wait
+xcrun stapler staple "UseMemo.dmg"
+xcrun stapler validate "UseMemo.dmg"
 ```
 
 Tauri signs the `.app` inside the image; the outer DMG needs its own signature if you want a
@@ -133,7 +133,7 @@ notarized disk image.
 - Screen Recording (system audio): prompted the first time the system channel is enabled. Reset with
   `tccutil reset ScreenCapture org.gnu.usememo`, then restart the app.
 - Quarantined ad-hoc builds can be opened with right-click → Open, or
-  `xattr -dr com.apple.quarantine "/Applications/Use Memo.app"`. Do not document that as the normal
+  `xattr -dr com.apple.quarantine "/Applications/UseMemo.app"`. Do not document that as the normal
   install path; sign and notarize instead.
 
 The microphone usage string and copyright in `frontend/src-tauri/Info.plist` are generated from
@@ -146,7 +146,7 @@ The microphone usage string and copyright in `frontend/src-tauri/Info.plist` are
 before distribution:
 
 ```powershell
-signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a "Use Memo_0.1.0_x64-setup.exe"
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a "UseMemo_0.1.0_x64-setup.exe"
 ```
 
 `pnpm package:release` stages and hashes the installers, but Windows signature verification is not

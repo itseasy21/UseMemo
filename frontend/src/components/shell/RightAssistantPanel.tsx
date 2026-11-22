@@ -527,14 +527,13 @@ export function RightAssistantPanel({
   return (
     <aside
       aria-label="AI Assistant and workspace tools"
-      className="hidden h-full w-[348px] shrink-0 flex-col border-l border-[var(--glass-border)] bg-[var(--glass-surface)] backdrop-blur-2xl xl:flex 2xl:w-[380px]"
+      className="fixed bottom-0 right-0 top-16 z-40 flex w-[min(360px,calc(100vw-16px))] shrink-0 flex-col border-l border-[var(--glass-border)] bg-[var(--shell-sidebar)] shadow-[-24px_0_70px_-34px_rgba(0,0,0,.8)] xl:static xl:z-auto xl:h-full xl:w-[360px] xl:shadow-none 2xl:w-[392px]"
     >
-      {/* Top Otter-style Underline Tab Bar */}
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--glass-border)] px-3.5">
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--glass-border)] px-3.5">
         <div
           role="tablist"
           aria-label={mode === "home" ? "Workspace assistant tabs" : "Meeting assistant tabs"}
-          className="flex h-full items-center gap-4"
+          className="flex items-center gap-1 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] p-1"
         >
           {mode === "home" ? (
             <>
@@ -544,7 +543,12 @@ export function RightAssistantPanel({
                 id={`${tabBaseId}-chat`}
                 aria-selected={homeTab === "chat"}
                 onClick={() => setHomeTab("chat")}
-                className="um-tab flex h-full items-center gap-1.5 text-xs font-semibold"
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition",
+                  homeTab === "chat"
+                    ? "bg-[var(--glass-surface-strong)] text-text-primary shadow-sm"
+                    : "text-text-muted hover:text-text-primary",
+                )}
               >
                 AI Chat
               </button>
@@ -554,7 +558,12 @@ export function RightAssistantPanel({
                 id={`${tabBaseId}-meetings`}
                 aria-selected={homeTab === "meetings"}
                 onClick={() => setHomeTab("meetings")}
-                className="um-tab flex h-full items-center gap-1.5 text-xs font-semibold"
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition",
+                  homeTab === "meetings"
+                    ? "bg-[var(--glass-surface-strong)] text-text-primary shadow-sm"
+                    : "text-text-muted hover:text-text-primary",
+                )}
               >
                 Meetings
               </button>
@@ -564,7 +573,12 @@ export function RightAssistantPanel({
                 id={`${tabBaseId}-actions`}
                 aria-selected={homeTab === "actions"}
                 onClick={() => setHomeTab("actions")}
-                className="um-tab flex h-full items-center gap-1.5 text-xs font-semibold"
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition",
+                  homeTab === "actions"
+                    ? "bg-[var(--glass-surface-strong)] text-text-primary shadow-sm"
+                    : "text-text-muted hover:text-text-primary",
+                )}
               >
                 Action Items ({openActionCount})
               </button>
@@ -577,7 +591,12 @@ export function RightAssistantPanel({
                 id={`${tabBaseId}-chat`}
                 aria-selected={meetingTab === "chat"}
                 onClick={() => setMeetingTab("chat")}
-                className="um-tab flex h-full items-center gap-1.5 text-xs font-semibold"
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition",
+                  meetingTab === "chat"
+                    ? "bg-[var(--glass-surface-strong)] text-text-primary shadow-sm"
+                    : "text-text-muted hover:text-text-primary",
+                )}
               >
                 AI Chat
               </button>
@@ -587,7 +606,12 @@ export function RightAssistantPanel({
                 id={`${tabBaseId}-notes`}
                 aria-selected={meetingTab === "notes"}
                 onClick={() => setMeetingTab("notes")}
-                className="um-tab flex h-full items-center gap-1.5 text-xs font-semibold"
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition",
+                  meetingTab === "notes"
+                    ? "bg-[var(--glass-surface-strong)] text-text-primary shadow-sm"
+                    : "text-text-muted hover:text-text-primary",
+                )}
               >
                 Notes
               </button>
@@ -597,7 +621,12 @@ export function RightAssistantPanel({
                 id={`${tabBaseId}-assist`}
                 aria-selected={meetingTab === "assist"}
                 onClick={() => setMeetingTab("assist")}
-                className="um-tab flex h-full items-center gap-1.5 text-xs font-semibold"
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition",
+                  meetingTab === "assist"
+                    ? "bg-[var(--glass-surface-strong)] text-text-primary shadow-sm"
+                    : "text-text-muted hover:text-text-primary",
+                )}
               >
                 Live Assist
               </button>
@@ -623,14 +652,18 @@ export function RightAssistantPanel({
           aria-labelledby={`${tabBaseId}-chat`}
           className="flex min-h-0 flex-1 flex-col"
         >
-          {/* Subheader: New chat */}
-          <div className="flex items-center justify-between px-4 py-2.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-text-primary">
-              <span className="flex size-6 items-center justify-center rounded-full bg-accent-primary/15 text-accent-primary">
-                <Bot className="size-3.5" aria-hidden="true" />
+          <div className="flex items-center justify-between px-4 py-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-primary/20 to-accent-secondary/15 text-accent-primary">
+                <Bot className="size-4" aria-hidden="true" />
               </span>
-              <span>Local AI Assistant</span>
-              <span className="size-1.5 rounded-full bg-accent-primary" />
+              <div>
+                <p className="text-[13px] font-semibold text-text-primary">Ask your meetings</p>
+                <p className="mt-0.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-text-muted">
+                  <span className="size-1.5 rounded-full bg-accent-primary" />
+                  Private and local
+                </p>
+              </div>
             </div>
             {turns.length > 0 && (
               <button
@@ -649,16 +682,15 @@ export function RightAssistantPanel({
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-2">
             {turns.length === 0 ? (
               <div className="mt-auto space-y-2 pb-3">
-                <p className="px-1 pb-1 text-[11px] text-text-muted">
-                  Ask anything about{" "}
-                  {meeting && scopedToMeeting ? `"${meeting.title}"` : "your vault"}:
+                <p className="px-1 pb-1 text-[12px] leading-5 text-text-muted">
+                  Try one of these, or ask your own question.
                 </p>
                 {suggestedPrompts.map((prompt) => (
                   <button
                     key={prompt}
                     type="button"
                     onClick={() => void runPrompt(prompt)}
-                    className="glass-subtle flex w-fit max-w-full items-center gap-2 rounded-full px-3.5 py-2 text-left text-xs font-medium text-text-primary transition hover:border-accent-primary/40 hover:bg-accent-primary/10"
+                    className="flex w-full max-w-full items-center gap-2.5 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-3.5 py-3 text-left text-xs font-medium text-text-primary transition hover:border-accent-primary/35 hover:bg-accent-primary/[0.07]"
                   >
                     <Sparkles
                       className="size-3.5 shrink-0 text-accent-primary"
@@ -841,7 +873,7 @@ export function RightAssistantPanel({
               </div>
             </div>
             <p className="mt-1.5 text-center text-[10.5px] text-text-muted/70">
-              Runs 100% locally on your Mac. Click timestamps to jump audio.
+              Runs 100% locally on your device. Click timestamps to jump audio.
             </p>
           </div>
         </div>

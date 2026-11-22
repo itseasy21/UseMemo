@@ -57,10 +57,10 @@ test("artifact discovery understands every Tauri bundle directory", () => {
       fs.mkdirSync(path.dirname(absolute), { recursive: true });
       fs.writeFileSync(absolute, relativePath);
     };
-    write("dmg/Use Memo_0.1.0_aarch64.dmg");
-    write("macos/Use Memo.app/Contents/Info.plist");
-    write("nsis/Use Memo_0.1.0_x64-setup.exe");
-    write("msi/Use Memo_0.1.0_x64_en-US.msi");
+    write("dmg/UseMemo_0.1.0_aarch64.dmg");
+    write("macos/UseMemo.app/Contents/Info.plist");
+    write("nsis/UseMemo_0.1.0_x64-setup.exe");
+    write("msi/UseMemo_0.1.0_x64_en-US.msi");
     write("deb/use-memo_0.1.0_amd64.deb");
     write("appimage/use-memo_0.1.0_amd64.AppImage");
     write("rpm/use-memo-0.1.0-1.x86_64.rpm");
@@ -68,14 +68,14 @@ test("artifact discovery understands every Tauri bundle directory", () => {
     const mac = collectArtifacts(root, "macos");
     assert.deepEqual(
       mac.map((artifact) => [path.basename(artifact.sourcePath), artifact.kind]),
-      [["Use Memo_0.1.0_aarch64.dmg", "dmg"]],
+      [["UseMemo_0.1.0_aarch64.dmg", "dmg"]],
     );
     const windows = collectArtifacts(root, "windows");
     assert.deepEqual(
       windows.map((artifact) => [path.basename(artifact.sourcePath), artifact.kind]),
       [
-        ["Use Memo_0.1.0_x64-setup.exe", "nsis"],
-        ["Use Memo_0.1.0_x64_en-US.msi", "msi"],
+        ["UseMemo_0.1.0_x64-setup.exe", "nsis"],
+        ["UseMemo_0.1.0_x64_en-US.msi", "msi"],
       ],
     );
     const linux = collectArtifacts(root, "linux");
@@ -96,7 +96,7 @@ test("artifact discovery understands every Tauri bundle directory", () => {
 test("staging copies installers, hashes them, and rejects a platform with no installers", () => {
   const root = tempDir();
   try {
-    const source = path.join(root, "bundle", "dmg", "Use Memo_0.1.0_aarch64.dmg");
+    const source = path.join(root, "bundle", "dmg", "UseMemo_0.1.0_aarch64.dmg");
     fs.mkdirSync(path.dirname(source), { recursive: true });
     fs.writeFileSync(source, "fake dmg bytes");
     const outDir = path.join(root, "release");
@@ -149,7 +149,7 @@ test("checksum and manifest output is sorted and stable", () => {
   const manifest = {
     schemaVersion: 1 as const,
     brandId: "use-memo",
-    productName: "Use Memo",
+    productName: "UseMemo",
     version: "0.1.0",
     bundleIdentifier: "org.gnu.usememo",
     license: "GPL-3.0-or-later",

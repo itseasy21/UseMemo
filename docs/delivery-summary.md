@@ -114,7 +114,7 @@ Apple ID or App Store Connect credentials are available. See
 Final gate run on the recorded host:
 
 ```text
-pnpm brand:check   Brand outputs are current for Use Memo.
+pnpm brand:check   Brand outputs are current for UseMemo.
 pnpm brand:test    15 passed
 pnpm package:test  8 passed
 pnpm airgap:test   5 passed
