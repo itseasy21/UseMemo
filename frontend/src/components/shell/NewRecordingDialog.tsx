@@ -16,6 +16,7 @@ import {
   MonitorUp,
   Pause,
   Play,
+  Settings2,
   ShieldCheck,
   Sparkles,
   Square,
@@ -488,18 +489,19 @@ export function NewRecordingDialog() {
       onOpenChange={(next) => {
         if (!next) handleDismiss();
       }}
-      title={started ? "Recording Live" : "Start a Recording"}
+      title={started ? "Recording in progress" : "New recording"}
       description={
         started
-          ? "Audio is streaming directly to your local vault. Open Studio to take live notes or pop out the floating HUD."
-          : "Configure your audio channels, slide capture, and AI models before starting."
+          ? "Audio is being written directly to your private local vault."
+          : "Choose what to capture. You can change transcription and summary models later."
       }
       size="lg"
+      className="h-[min(720px,calc(100dvh-1rem))]"
       footer={
         <>
           <span className="flex items-center gap-1.5 text-xs text-text-muted">
             <ShieldCheck className="size-3.5 text-accent-primary" aria-hidden="true" />
-            <span>100% Local Vault</span>
+            <span>Private local vault</span>
             {sources.system && (
               <>
                 <span className="opacity-40">·</span>
@@ -633,7 +635,7 @@ export function NewRecordingDialog() {
               <Meter value={micLevel} label="Microphone input level" />
               <p className="mt-2 truncate text-[11px] text-text-muted">
                 {noSignal
-                  ? "No signal detected — check macOS Microphone permissions."
+                  ? "No signal detected. Check microphone access in your system settings."
                   : selectedMic || "System default microphone"}
               </p>
             </div>
@@ -734,7 +736,7 @@ export function NewRecordingDialog() {
 
           {/* 2. Audio Channels Showcase (2 Interactive Glass Cards) */}
           <div>
-            <p className="mb-2 text-xs font-medium text-text-muted">Audio channels</p>
+            <p className="mb-2 text-xs font-medium text-text-muted">What should I record?</p>
             <div className="grid gap-3 sm:grid-cols-2">
               {/* Microphone Card */}
               <div className="glass-subtle flex flex-col justify-between rounded-2xl border-accent-primary/30 bg-[color-mix(in_oklab,var(--brand-accent-primary)_5%,var(--glass-surface-subtle))] p-3.5">
@@ -744,8 +746,8 @@ export function NewRecordingDialog() {
                       <Mic className="size-4" aria-hidden="true" />
                     </span>
                     <div>
-                      <p className="text-[13px] font-semibold text-text-primary">Microphone</p>
-                      <p className="text-[11px] text-text-muted">Your voice · Channel 1</p>
+                      <p className="text-[13px] font-semibold text-text-primary">My microphone</p>
+                      <p className="text-[11px] text-text-muted">Records your voice</p>
                     </div>
                   </div>
                   <Pill tone="accent" icon={<Check className="size-2.5" />}>
@@ -797,8 +799,12 @@ export function NewRecordingDialog() {
                       <MonitorSpeaker className="size-4" aria-hidden="true" />
                     </span>
                     <div>
-                      <p className="text-[13px] font-semibold text-text-primary">Meeting Audio</p>
-                      <p className="text-[11px] text-text-muted">Zoom, Meet, Teams &amp; apps</p>
+                      <p className="text-[13px] font-semibold text-text-primary">
+                        Other people in the call
+                      </p>
+                      <p className="text-[11px] text-text-muted">
+                        Zoom, Meet, Teams, and other apps
+                      </p>
                     </div>
                   </div>
                   {systemAvailable ? (
@@ -815,213 +821,233 @@ export function NewRecordingDialog() {
 
                 <p className="mt-3 text-[11px] leading-4 text-text-muted">
                   {sources.system && systemAvailable
-                    ? "Captures remote participants on a separate track."
-                    : "Turn on to record remote participants from any call app."}
+                    ? "Recommended for online meetings. Keeps voices on a separate track."
+                    : systemAvailable
+                      ? "Turn this on for online meetings."
+                      : "Your microphone will still be recorded. Call audio is not supported on this platform yet."}
                 </p>
               </div>
             </div>
           </div>
 
-          {/* 3. Smart Features & Slide Capture Controls */}
-          <div className="space-y-2.5">
-            <p className="text-xs font-medium text-text-muted">Smart capture &amp; AI</p>
-
-            {/* Speaker Diarization Row */}
-            <div
-              onClick={() => toggleSource("diarize")}
-              className="glass-subtle flex cursor-pointer items-center justify-between gap-3 rounded-2xl px-4 py-3 transition hover:border-[var(--glass-border-strong)]"
-            >
+          <details className="group overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)]">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 marker:hidden">
               <div className="flex items-center gap-3">
-                <span
-                  className={cn(
-                    "flex size-8 shrink-0 items-center justify-center rounded-xl border",
-                    sources.diarize
-                      ? "border-accent-primary/30 bg-accent-primary/12 text-accent-primary"
-                      : "border-[var(--glass-border)] bg-[var(--glass-surface)] text-text-muted",
-                  )}
-                >
-                  <Users className="size-4" aria-hidden="true" />
+                <span className="flex size-9 items-center justify-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface)] text-text-muted">
+                  <Settings2 className="size-4" aria-hidden="true" />
                 </span>
                 <div>
-                  <p className="text-[13px] font-medium text-text-primary">
-                    Automatic Speaker Labels
-                  </p>
+                  <p className="text-[13px] font-semibold text-text-primary">Advanced settings</p>
                   <p className="text-[11.5px] text-text-muted">
-                    Separates voices and matches enrolled speakers on-device
+                    Speaker labels, slide capture, and local AI models
                   </p>
                 </div>
               </div>
-              <Toggle
-                checked={sources.diarize}
-                onChange={() => toggleSource("diarize")}
-                label="Toggle speaker diarization"
-                size="sm"
-              />
-            </div>
+              <span className="text-[11px] font-medium text-accent-primary group-open:hidden">
+                Show
+              </span>
+              <span className="hidden text-[11px] font-medium text-accent-primary group-open:inline">
+                Hide
+              </span>
+            </summary>
 
-            {/* Visual Slide Capture Card with Inline Cadence + Target Controls */}
-            {BRAND.features.enablePeriodicScreenshots && (
-              <div className="glass-subtle rounded-2xl p-3.5 transition">
-                <div
-                  onClick={() => toggleSource("screenshots")}
-                  className="flex cursor-pointer items-center justify-between gap-3"
-                >
-                  <div className="flex items-center gap-3">
+            <div className="space-y-2.5 border-t border-[var(--glass-border)] p-3.5">
+              {/* Speaker Diarization Row */}
+              <div
+                onClick={() => toggleSource("diarize")}
+                className="glass-subtle flex cursor-pointer items-center justify-between gap-3 rounded-2xl px-4 py-3 transition hover:border-[var(--glass-border-strong)]"
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    className={cn(
+                      "flex size-8 shrink-0 items-center justify-center rounded-xl border",
+                      sources.diarize
+                        ? "border-accent-primary/30 bg-accent-primary/12 text-accent-primary"
+                        : "border-[var(--glass-border)] bg-[var(--glass-surface)] text-text-muted",
+                    )}
+                  >
+                    <Users className="size-4" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <p className="text-[13px] font-medium text-text-primary">
+                      Automatic Speaker Labels
+                    </p>
+                    <p className="text-[11.5px] text-text-muted">
+                      Separates voices and matches enrolled speakers on-device
+                    </p>
+                  </div>
+                </div>
+                <Toggle
+                  checked={sources.diarize}
+                  onChange={() => toggleSource("diarize")}
+                  label="Toggle speaker diarization"
+                  size="sm"
+                />
+              </div>
+
+              {/* Visual Slide Capture Card with Inline Cadence + Target Controls */}
+              {BRAND.features.enablePeriodicScreenshots && (
+                <div className="glass-subtle rounded-2xl p-3.5 transition">
+                  <div
+                    onClick={() => toggleSource("screenshots")}
+                    className="flex cursor-pointer items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={cn(
+                          "flex size-8 shrink-0 items-center justify-center rounded-xl border",
+                          sources.screenshots
+                            ? "border-accent-secondary/35 bg-accent-secondary/14 text-accent-secondary"
+                            : "border-[var(--glass-border)] bg-[var(--glass-surface)] text-text-muted",
+                        )}
+                      >
+                        <Camera className="size-4" aria-hidden="true" />
+                      </span>
+                      <div>
+                        <p className="text-[13px] font-medium text-text-primary">
+                          Smart Slide &amp; Screen Capture
+                        </p>
+                        <p className="text-[11.5px] text-text-muted">
+                          Automatically captures shared slides and processes text on-device
+                        </p>
+                      </div>
+                    </div>
+                    <Toggle
+                      checked={sources.screenshots}
+                      onChange={() => toggleSource("screenshots")}
+                      label="Toggle periodic screenshots"
+                      size="sm"
+                    />
+                  </div>
+
+                  {sources.screenshots && (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--glass-border)] pt-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="mr-1 text-[11px] font-medium text-text-muted">
+                          Interval:
+                        </span>
+                        {CADENCE_OPTIONS.map((sec) => (
+                          <button
+                            key={sec}
+                            type="button"
+                            onClick={() => setScreenshotCadenceSec(sec)}
+                            className={cn(
+                              "tabular rounded-lg border px-2 py-0.5 text-[11px] font-medium transition",
+                              screenshotCadenceSec === sec
+                                ? "border-accent-secondary/45 bg-accent-secondary/15 text-accent-secondary"
+                                : "border-[var(--glass-border)] bg-[var(--glass-surface)] text-text-muted hover:text-text-primary",
+                            )}
+                          >
+                            {sec}s
+                          </button>
+                        ))}
+                      </div>
+
+                      {isTauri() && targets && targets.visualTargets.length > 0 && (
+                        <select
+                          id="recording-target-select"
+                          aria-label="Slide capture source"
+                          value={selectedTargetKey}
+                          onChange={(e) => setSelectedTargetKey(e.target.value)}
+                          className="glass-input h-7 max-w-[240px] px-2.5 text-[11.5px] text-text-primary outline-none focus:border-accent-primary/50"
+                        >
+                          <option value="auto">Main screen (excludes HUD)</option>
+                          {targets.visualTargets.map((t) => (
+                            <option key={`${t.kind}:${t.id}`} value={`${t.kind}:${t.id}`}>
+                              {t.kind === "window" ? `Window: ${t.title}` : t.title}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Compact AI Models Selection Bar */}
+              <div className="glass-subtle grid gap-3 rounded-2xl p-3.5 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="recording-asr-select"
+                    className="mb-1 flex items-center justify-between text-[11px] font-medium text-text-muted"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <AudioLines className="size-3 text-accent-primary" aria-hidden="true" />
+                      Voice Recognition
+                    </span>
                     <span
                       className={cn(
-                        "flex size-8 shrink-0 items-center justify-center rounded-xl border",
-                        sources.screenshots
-                          ? "border-accent-secondary/35 bg-accent-secondary/14 text-accent-secondary"
-                          : "border-[var(--glass-border)] bg-[var(--glass-surface)] text-text-muted",
+                        "text-[10.5px]",
+                        selectedAsr?.installed ? "text-accent-primary" : "text-amber-400",
                       )}
                     >
-                      <Camera className="size-4" aria-hidden="true" />
+                      {selectedAsr?.installed ? "Ready" : "Not installed"}
                     </span>
-                    <div>
-                      <p className="text-[13px] font-medium text-text-primary">
-                        Smart Slide &amp; Screen Capture
-                      </p>
-                      <p className="text-[11.5px] text-text-muted">
-                        Automatically snaps shared slides when the screen changes (with Apple Vision
-                        OCR)
-                      </p>
-                    </div>
-                  </div>
-                  <Toggle
-                    checked={sources.screenshots}
-                    onChange={() => toggleSource("screenshots")}
-                    label="Toggle periodic screenshots"
-                    size="sm"
-                  />
+                  </label>
+                  <select
+                    id="recording-asr-select"
+                    value={selectedAsr?.id ?? ""}
+                    onChange={(e) => setChosenAsrId(e.target.value)}
+                    className="glass-input h-8 w-full px-2.5 text-xs text-text-primary outline-none focus:border-accent-primary/50"
+                  >
+                    {asrOptions.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} {m.installed ? "✓" : "(Download in AI Models)"}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                {sources.screenshots && (
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--glass-border)] pt-3">
-                    <div className="flex items-center gap-1.5">
-                      <span className="mr-1 text-[11px] font-medium text-text-muted">
-                        Interval:
-                      </span>
-                      {CADENCE_OPTIONS.map((sec) => (
-                        <button
-                          key={sec}
-                          type="button"
-                          onClick={() => setScreenshotCadenceSec(sec)}
-                          className={cn(
-                            "tabular rounded-lg border px-2 py-0.5 text-[11px] font-medium transition",
-                            screenshotCadenceSec === sec
-                              ? "border-accent-secondary/45 bg-accent-secondary/15 text-accent-secondary"
-                              : "border-[var(--glass-border)] bg-[var(--glass-surface)] text-text-muted hover:text-text-primary",
-                          )}
-                        >
-                          {sec}s
-                        </button>
-                      ))}
-                    </div>
-
-                    {isTauri() && targets && targets.visualTargets.length > 0 && (
-                      <select
-                        id="recording-target-select"
-                        aria-label="Slide capture source"
-                        value={selectedTargetKey}
-                        onChange={(e) => setSelectedTargetKey(e.target.value)}
-                        className="glass-input h-7 max-w-[240px] px-2.5 text-[11.5px] text-text-primary outline-none focus:border-accent-primary/50"
-                      >
-                        <option value="auto">Main screen (excludes HUD)</option>
-                        {targets.visualTargets.map((t) => (
-                          <option key={`${t.kind}:${t.id}`} value={`${t.kind}:${t.id}`}>
-                            {t.kind === "window" ? `Window: ${t.title}` : t.title}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Compact AI Models Selection Bar */}
-            <div className="glass-subtle grid gap-3 rounded-2xl p-3.5 sm:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="recording-asr-select"
-                  className="mb-1 flex items-center justify-between text-[11px] font-medium text-text-muted"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <AudioLines className="size-3 text-accent-primary" aria-hidden="true" />
-                    Voice Recognition
-                  </span>
-                  <span
-                    className={cn(
-                      "text-[10.5px]",
-                      selectedAsr?.installed ? "text-accent-primary" : "text-amber-400",
-                    )}
+                <div>
+                  <label
+                    htmlFor="recording-slm-select"
+                    className="mb-1 flex items-center justify-between text-[11px] font-medium text-text-muted"
                   >
-                    {selectedAsr?.installed ? "Ready" : "Not installed"}
-                  </span>
-                </label>
-                <select
-                  id="recording-asr-select"
-                  value={selectedAsr?.id ?? ""}
-                  onChange={(e) => setChosenAsrId(e.target.value)}
-                  className="glass-input h-8 w-full px-2.5 text-xs text-text-primary outline-none focus:border-accent-primary/50"
-                >
-                  {asrOptions.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} {m.installed ? "✓" : "(Download in AI Models)"}
-                    </option>
-                  ))}
-                </select>
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="size-3 text-accent-secondary" aria-hidden="true" />
+                      AI Summary Model
+                    </span>
+                    <span
+                      className={cn(
+                        "text-[10.5px]",
+                        selectedSlm?.installed ? "text-accent-primary" : "text-amber-400",
+                      )}
+                    >
+                      {selectedSlm?.installed ? "Ready" : "Not installed"}
+                    </span>
+                  </label>
+                  <select
+                    id="recording-slm-select"
+                    value={selectedSlm?.id ?? ""}
+                    onChange={(e) => setPreferredSlmId(e.target.value)}
+                    className="glass-input h-8 w-full px-2.5 text-xs text-text-primary outline-none focus:border-accent-primary/50"
+                  >
+                    {slmOptions.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} {m.installed ? "✓" : "(Download in AI Models)"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label
-                  htmlFor="recording-slm-select"
-                  className="mb-1 flex items-center justify-between text-[11px] font-medium text-text-muted"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Sparkles className="size-3 text-accent-secondary" aria-hidden="true" />
-                    AI Summary Model
+              {isTauri() && selectedAsr && !selectedAsr.installed && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-3.5 py-2.5 text-xs text-text-primary">
+                  <span>
+                    Audio will be recorded now. Install a Voice Recognition model anytime to
+                    transcribe it.
                   </span>
-                  <span
-                    className={cn(
-                      "text-[10.5px]",
-                      selectedSlm?.installed ? "text-accent-primary" : "text-amber-400",
-                    )}
+                  <Link
+                    href="/models/"
+                    onClick={close}
+                    className={buttonClass({ variant: "secondary", size: "xs" })}
                   >
-                    {selectedSlm?.installed ? "Ready" : "Not installed"}
-                  </span>
-                </label>
-                <select
-                  id="recording-slm-select"
-                  value={selectedSlm?.id ?? ""}
-                  onChange={(e) => setPreferredSlmId(e.target.value)}
-                  className="glass-input h-8 w-full px-2.5 text-xs text-text-primary outline-none focus:border-accent-primary/50"
-                >
-                  {slmOptions.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} {m.installed ? "✓" : "(Download in AI Models)"}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                    Open AI Models
+                  </Link>
+                </div>
+              )}
             </div>
-
-            {isTauri() && selectedAsr && !selectedAsr.installed && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-3.5 py-2.5 text-xs text-text-primary">
-                <span>
-                  Audio will be recorded now. Install a Voice Recognition model anytime to
-                  transcribe it.
-                </span>
-                <Link
-                  href="/models/"
-                  onClick={close}
-                  className={buttonClass({ variant: "secondary", size: "xs" })}
-                >
-                  Open AI Models
-                </Link>
-              </div>
-            )}
-          </div>
+          </details>
         </div>
       )}
     </Dialog>

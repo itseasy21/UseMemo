@@ -113,14 +113,14 @@ export function StudioHeader({
     <header
       data-tauri-drag-region
       className={cn(
-        "flex h-14 shrink-0 items-center gap-3 border-b border-[var(--glass-border)] bg-[var(--glass-surface)] px-3.5 backdrop-blur-2xl sm:px-5",
+        "flex h-16 shrink-0 items-center gap-3 border-b border-[var(--glass-border)] bg-[var(--shell-sidebar)] px-4 sm:px-5",
         macOverlay && "pl-[80px] sm:pl-[86px]",
       )}
     >
       <Link
         href="/"
         aria-label={`Back to ${BRAND.productName} meetings`}
-        className="glass-subtle flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-xs font-medium text-text-muted transition hover:text-text-primary"
+        className="flex h-9 items-center gap-1.5 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-3 text-xs font-medium text-text-muted transition hover:text-text-primary"
       >
         <ChevronLeft className="size-3.5" aria-hidden="true" />
         <span className="hidden sm:inline">Meetings</span>
@@ -199,13 +199,13 @@ export function StudioHeader({
       {/* Segmented Studio / AI Summary Switcher */}
       <nav
         aria-label="Meeting view mode"
-        className="glass-subtle flex h-9 items-center rounded-xl p-1"
+        className="flex h-10 items-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] p-1"
       >
         <Link
           href={meetingHref(meeting.id)}
           aria-current={mode === "studio" ? "page" : undefined}
           className={cn(
-            "flex h-7 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition",
+            "flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition",
             mode === "studio"
               ? "bg-accent-primary text-bg-primary shadow-xs"
               : "text-text-muted hover:text-text-primary",
@@ -218,7 +218,7 @@ export function StudioHeader({
           href={synthesisHref(meeting.id)}
           aria-current={mode === "synthesis" ? "page" : undefined}
           className={cn(
-            "flex h-7 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition",
+            "flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition",
             mode === "synthesis"
               ? "bg-accent-primary text-bg-primary shadow-xs"
               : "text-text-muted hover:text-text-primary",
