@@ -42,7 +42,7 @@ export function SidebarSheetContent({ onClose }: { onClose?: () => void }) {
   const setRightPanelOpen = useWorkspaceStore((state) => state.setRightPanelOpen);
   const pushToast = useWorkspaceStore((state) => state.pushToast);
 
-  const [deviceNoun, setDeviceNoun] = useState("this Mac");
+  const [deviceNoun, setDeviceNoun] = useState("this device");
   const [folders, setFolders] = useState<FolderRecord[]>([]);
   const [foldersExpanded, setFoldersExpanded] = useState(true);
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -129,19 +129,22 @@ export function SidebarSheetContent({ onClose }: { onClose?: () => void }) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Top Workspace Profile Card (Otter style) */}
-      <div className={cn("shrink-0 p-3", collapsed && "px-2")}>
+      <div className={cn("shrink-0 px-3 pb-4 pt-5", collapsed && "px-2")}>
         {collapsed ? (
           <div className="flex justify-center">
             <Avatar name={BRAND.productName} tone="accent" size="sm" />
           </div>
         ) : (
-          <div className="glass-subtle flex items-center justify-between gap-2.5 rounded-2xl px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2.5 px-2">
             <div className="flex min-w-0 items-center gap-2.5">
               <Avatar name={BRAND.productName} tone="accent" size="sm" />
               <div className="min-w-0">
-                <p className="truncate text-xs font-semibold text-text-primary">Local Workspace</p>
-                <p className="truncate text-[11px] text-text-muted">Stored on {deviceNoun}</p>
+                <p className="truncate text-[13px] font-semibold tracking-[-0.01em] text-text-primary">
+                  Personal vault
+                </p>
+                <p className="truncate text-[10px] font-medium uppercase tracking-[0.1em] text-text-muted">
+                  Private on {deviceNoun}
+                </p>
               </div>
             </div>
             {onClose && (
@@ -160,19 +163,24 @@ export function SidebarSheetContent({ onClose }: { onClose?: () => void }) {
 
       {/* Primary Navigation */}
       <nav
-        className={cn("min-h-0 flex-1 overflow-y-auto px-3 pt-1", collapsed && "px-2")}
+        className={cn("min-h-0 flex-1 overflow-y-auto px-3", collapsed && "px-2")}
         aria-label="Primary"
       >
-        <div className="space-y-1">
+        {!collapsed && (
+          <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted/65">
+            Workspace
+          </p>
+        )}
+        <div className="space-y-1.5">
           {/* Home */}
           <button
             type="button"
             onClick={() => selectFolderAndGoHome("all")}
             title={collapsed ? "Home" : undefined}
             className={cn(
-              "group flex h-9 w-full items-center gap-3 rounded-xl border px-3 text-[13px] font-medium transition",
+              "group flex h-10 w-full items-center gap-3 rounded-xl border px-3 text-[13px] font-medium transition",
               isHome && activeFolderFilter === "all"
-                ? "border-accent-primary/30 bg-accent-primary/12 text-text-primary shadow-[inset_0_1px_0_0_color-mix(in_oklab,white_12%,transparent)]"
+                ? "border-accent-primary/20 bg-gradient-to-r from-accent-primary/16 to-accent-secondary/[0.06] text-text-primary shadow-[inset_3px_0_0_var(--brand-accent-primary)]"
                 : "border-transparent text-text-muted hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary",
               collapsed && "justify-center px-0",
             )}
@@ -204,7 +212,7 @@ export function SidebarSheetContent({ onClose }: { onClose?: () => void }) {
             }}
             title={collapsed ? "AI Chat" : undefined}
             className={cn(
-              "group flex h-9 w-full items-center gap-3 rounded-xl border border-transparent px-3 text-[13px] font-medium text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary",
+              "group flex h-10 w-full items-center gap-3 rounded-xl border border-transparent px-3 text-[13px] font-medium text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary",
               collapsed && "justify-center px-0",
             )}
           >
@@ -231,7 +239,7 @@ export function SidebarSheetContent({ onClose }: { onClose?: () => void }) {
             }}
             title={collapsed ? "Action Items" : undefined}
             className={cn(
-              "group flex h-9 w-full items-center gap-3 rounded-xl border border-transparent px-3 text-[13px] font-medium text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary",
+              "group flex h-10 w-full items-center gap-3 rounded-xl border border-transparent px-3 text-[13px] font-medium text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary",
               collapsed && "justify-center px-0",
             )}
           >
@@ -249,9 +257,9 @@ export function SidebarSheetContent({ onClose }: { onClose?: () => void }) {
             aria-current={isModels ? "page" : undefined}
             title={collapsed ? "AI Models" : undefined}
             className={cn(
-              "group flex h-9 items-center gap-3 rounded-xl border px-3 text-[13px] font-medium transition",
+              "group flex h-10 items-center gap-3 rounded-xl border px-3 text-[13px] font-medium transition",
               isModels
-                ? "border-accent-primary/30 bg-accent-primary/12 text-text-primary shadow-[inset_0_1px_0_0_color-mix(in_oklab,white_12%,transparent)]"
+                ? "border-accent-primary/20 bg-gradient-to-r from-accent-primary/16 to-accent-secondary/[0.06] text-text-primary shadow-[inset_3px_0_0_var(--brand-accent-primary)]"
                 : "border-transparent text-text-muted hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary",
               collapsed && "justify-center px-0",
             )}
@@ -269,12 +277,12 @@ export function SidebarSheetContent({ onClose }: { onClose?: () => void }) {
 
         {/* Otter-style FOLDERS / CHANNELS Section */}
         {!collapsed && (
-          <div className="mt-6">
+          <div className="mt-7">
             <div className="flex items-center justify-between px-2 pb-1.5">
               <button
                 type="button"
                 onClick={() => setFoldersExpanded((prev) => !prev)}
-                className="flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-text-muted/75 transition hover:text-text-primary"
+                className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted/65 transition hover:text-text-primary"
               >
                 {foldersExpanded ? (
                   <ChevronDown className="size-3" aria-hidden="true" />
@@ -395,13 +403,13 @@ export function SidebarSheetContent({ onClose }: { onClose?: () => void }) {
             </span>
           </div>
         ) : (
-          <div className="glass-subtle rounded-2xl p-3">
+          <div className="rounded-2xl border border-accent-primary/15 bg-gradient-to-br from-accent-primary/[0.09] to-accent-secondary/[0.04] p-3.5">
             <div className="flex items-center gap-2">
               <ShieldCheck className="size-4 shrink-0 text-accent-primary" aria-hidden="true" />
-              <p className="text-xs font-semibold text-text-primary">On-Device Pro</p>
+              <p className="text-xs font-semibold text-text-primary">Private by design</p>
             </div>
             <p className="mt-1 text-[11px] leading-4 text-text-muted">
-              100% offline audio, transcription, and AI synthesis.
+              Your audio, transcripts, and AI stay on this device.
             </p>
             <Link
               href="/models/"
@@ -425,8 +433,8 @@ export function Sidebar() {
     <aside
       aria-label="Workspace navigation"
       className={cn(
-        "relative z-20 hidden h-full shrink-0 flex-col border-r border-[var(--glass-border)] bg-[var(--glass-surface)] backdrop-blur-2xl transition-[width] duration-200 ease-out md:flex",
-        collapsed ? "w-[68px]" : "w-[228px]",
+        "relative z-20 hidden h-full shrink-0 flex-col border-r border-[var(--glass-border)] bg-[var(--shell-sidebar)] transition-[width] duration-200 ease-out md:flex",
+        collapsed ? "w-[72px]" : "w-[248px]",
       )}
     >
       <SidebarSheetContent />

@@ -142,7 +142,9 @@ export function AppShell({
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">{children}</main>
+        <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto bg-[var(--shell-canvas)]">
+          {children}
+        </main>
         {rightMode !== "none" && (
           <RightAssistantPanel
             mode={rightMode}

@@ -70,6 +70,10 @@ impl CapturedFrame {
 pub trait ScreenCapture: Send + Sync {
     fn capture(&self) -> AppResult<CapturedFrame>;
 
+    fn is_supported(&self) -> bool {
+        true
+    }
+
     fn set_target(&self, _target: CaptureTarget) {}
 
     fn target(&self) -> CaptureTarget {
@@ -96,6 +100,10 @@ impl SystemScreenCapture {
 }
 
 impl ScreenCapture for SystemScreenCapture {
+    fn is_supported(&self) -> bool {
+        cfg!(target_os = "macos")
+    }
+
     fn capture(&self) -> AppResult<CapturedFrame> {
         let current = self
             .target

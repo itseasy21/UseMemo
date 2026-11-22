@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Use Memo",
+  "productName": "UseMemo",
   "mainBinaryName": "use-memo",
   "version": "0.1.0",
   "identifier": "org.gnu.usememo",
@@ -16,7 +16,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Use Memo",
+        "title": "UseMemo",
         "width": 1360,
         "height": 880,
         "minWidth": 1024,
@@ -32,7 +32,7 @@
       },
       {
         "label": "hud",
-        "title": "Use Memo HUD",
+        "title": "UseMemo HUD",
         "url": "/hud/",
         "width": 320,
         "height": 48,
@@ -83,8 +83,8 @@
     ],
     "category": "Productivity",
     "shortDescription": "Local-First AI Meeting & Note Studio",
-    "longDescription": "Use Memo — Local-First AI Meeting & Note Studio. Use Memo Project (GNU GPLv3).",
-    "copyright": "© 2026 Use Memo Project (GNU GPLv3)",
+    "longDescription": "UseMemo — Local-First AI Meeting & Note Studio. UseMemo Project (GNU GPLv3).",
+    "copyright": "© 2026 UseMemo Project (GNU GPLv3)",
     "license": "GPL-3.0-or-later",
     "macOS": {
       "minimumSystemVersion": "13.0",

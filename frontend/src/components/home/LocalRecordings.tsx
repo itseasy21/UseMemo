@@ -114,7 +114,7 @@ export function LocalRecordings() {
   const [deleting, setDeleting] = useState(false);
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
-  const [deviceNoun, setDeviceNoun] = useState("this Mac");
+  const [deviceNoun, setDeviceNoun] = useState("this device");
 
   useEffect(() => {
     setHosted(isTauri());
@@ -303,9 +303,8 @@ export function LocalRecordings() {
 
   return (
     <>
-      <section aria-label="Conversations feed" className="space-y-6">
-        {/* Top Filter Row */}
-        <div className="flex items-center justify-between gap-3">
+      <section aria-label="Conversations feed" className="space-y-8">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--glass-border)] pb-4">
           <div className="flex items-center gap-2">
             {activeFolderFilter !== "all" && (
               <button
@@ -321,7 +320,7 @@ export function LocalRecordings() {
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 text-xs">
+          <div className="flex items-center gap-1 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] p-1 text-xs">
             {(
               [
                 { id: "all", label: "For you" },
@@ -334,9 +333,9 @@ export function LocalRecordings() {
                 type="button"
                 onClick={() => setFeedFilter(opt.id)}
                 className={cn(
-                  "rounded-full px-3 py-1 font-medium transition",
+                  "rounded-lg px-3 py-1.5 font-medium transition",
                   feedFilter === opt.id
-                    ? "bg-accent-primary/14 text-accent-primary"
+                    ? "bg-[var(--glass-surface-strong)] text-text-primary shadow-sm"
                     : "text-text-muted hover:text-text-primary",
                 )}
               >
@@ -373,13 +372,13 @@ export function LocalRecordings() {
 
         {/* Chronological Date-Grouped Otter Feed */}
         {dateGroups.map((group) => (
-          <div key={group.label} className="space-y-3.5">
-            <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-text-muted">
+          <div key={group.label} className="space-y-4">
+            <div className="flex items-center gap-2 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted/70">
               <span>{group.label}</span>
               <ChevronDown className="size-3.5 opacity-70" aria-hidden="true" />
             </div>
 
-            <div className="space-y-3.5">
+            <div className="space-y-4">
               {group.items.map((card) => {
                 const { record, summaryExcerpt, actionCount, segmentCount, screenshots, speakers } =
                   card;
@@ -391,9 +390,8 @@ export function LocalRecordings() {
                   segmentCount > 0;
 
                 return (
-                  <div key={record.id} className="flex items-start gap-3.5">
-                    {/* Left Speaker/Owner Avatar (Otter feed style) */}
-                    <div className="mt-2 hidden shrink-0 sm:block">
+                  <div key={record.id} className="flex items-start gap-4">
+                    <div className="mt-3 hidden shrink-0 sm:block">
                       <Avatar
                         name={speakers[0]?.name || record.title}
                         tone={speakers[0]?.tone || "accent"}
@@ -402,11 +400,11 @@ export function LocalRecordings() {
                     </div>
 
                     {/* Main Feed Card */}
-                    <article className="um-feed-card panel min-w-0 flex-1 p-4 sm:p-5">
+                    <article className="um-feed-card panel min-w-0 flex-1 overflow-hidden p-5 sm:p-6">
                       <header className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="truncate text-[16.5px] font-semibold tracking-[-0.015em] text-text-primary">
+                            <h3 className="truncate text-[18px] font-semibold tracking-[-0.025em] text-text-primary">
                               <Link href={meetingHref(record.id)} className="card-link">
                                 {record.title}
                               </Link>
@@ -422,7 +420,7 @@ export function LocalRecordings() {
                               </Pill>
                             )}
                           </div>
-                          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-text-muted">
+                          <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.07em] text-text-muted/80">
                             <span>{formatTimeOfDay(record.createdAt)}</span>
                             <span>·</span>
                             <span>{formatDuration(Math.max(0, record.durationMs))}</span>
@@ -495,11 +493,11 @@ export function LocalRecordings() {
                       {/* Summary / Transcript Preview Paragraph */}
                       {summaryExcerpt && (
                         <div className="mt-3">
-                          <p className="line-clamp-3 text-[13.5px] leading-[1.6] text-text-primary/88">
+                          <p className="line-clamp-3 text-[14px] leading-6 text-text-primary/82">
                             {summaryExcerpt}
                           </p>
-                          <span className="mt-1 inline-block text-xs font-medium text-text-muted">
-                            Show more
+                          <span className="mt-2 inline-block text-[11px] font-semibold text-accent-primary">
+                            Open conversation
                           </span>
                         </div>
                       )}

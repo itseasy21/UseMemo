@@ -123,30 +123,39 @@ export function TopHeaderBar({
     <header
       data-tauri-drag-region
       className={cn(
-        "relative z-30 flex h-12 shrink-0 items-center justify-between gap-3 border-b border-[var(--glass-border)] bg-[var(--glass-surface)] px-3.5 backdrop-blur-2xl",
-        macOverlay && "pl-[82px]",
+        "relative z-30 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-[var(--glass-border)] bg-[color-mix(in_oklab,var(--shell-sidebar)_92%,transparent)] px-4 backdrop-blur-2xl",
+        macOverlay && "pl-[88px]",
       )}
     >
       {/* Left: Brand + Sidebar Collapse + Back/Forward Arrows */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-2 sm:min-w-[190px]">
         <button
           type="button"
           onClick={openMobileNav}
           aria-label="Open navigation menu"
           aria-expanded={mobileNavOpen}
           aria-controls={drawerId}
-          className="flex size-8 items-center justify-center rounded-xl text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary md:hidden"
+          className="flex size-9 items-center justify-center rounded-xl text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary md:hidden"
         >
           <Menu className="size-4" aria-hidden="true" />
+        </button>
+
+        <button
+          type="button"
+          onClick={openPalette}
+          aria-label="Search meetings and notes"
+          className="flex size-9 items-center justify-center rounded-xl text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary sm:hidden"
+        >
+          <Search className="size-4" aria-hidden="true" />
         </button>
 
         <Link
           href="/"
           aria-label={`${BRAND.productName} home`}
-          className="flex items-center gap-2 rounded-xl px-1.5 py-1 transition hover:bg-[var(--glass-surface-subtle)]"
+          className="flex items-center gap-2.5 rounded-xl px-1 py-1 transition hover:opacity-90"
         >
-          <BrandMark className="size-6" />
-          <span className="hidden text-[13.5px] font-semibold tracking-[-0.02em] text-text-primary sm:inline">
+          <BrandMark className="size-8" />
+          <span className="hidden text-[15px] font-semibold tracking-[-0.04em] text-text-primary sm:inline">
             {BRAND.productName}
           </span>
         </Link>
@@ -156,7 +165,7 @@ export function TopHeaderBar({
           onClick={toggleSidebar}
           aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="hidden size-7 items-center justify-center rounded-lg text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary md:flex"
+          className="hidden size-8 items-center justify-center rounded-lg text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary md:flex"
         >
           {sidebarCollapsed ? (
             <ChevronsRight className="size-4" aria-hidden="true" />
@@ -166,7 +175,7 @@ export function TopHeaderBar({
         </button>
 
         <span
-          className="mx-0.5 hidden h-4 w-px bg-[var(--glass-border)] sm:block"
+          className="mx-1 hidden h-5 w-px bg-[var(--glass-border)] sm:block"
           aria-hidden="true"
         />
 
@@ -175,7 +184,7 @@ export function TopHeaderBar({
           onClick={() => router.back()}
           aria-label="Navigate back"
           title="Back"
-          className="hidden size-7 items-center justify-center rounded-lg text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary sm:flex"
+          className="hidden size-8 items-center justify-center rounded-lg text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary sm:flex"
         >
           <ArrowLeft className="size-3.5" aria-hidden="true" />
         </button>
@@ -184,34 +193,34 @@ export function TopHeaderBar({
           onClick={() => router.forward()}
           aria-label="Navigate forward"
           title="Forward"
-          className="hidden size-7 items-center justify-center rounded-lg text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary sm:flex"
+          className="hidden size-8 items-center justify-center rounded-lg text-text-muted transition hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary sm:flex"
         >
           <ArrowRight className="size-3.5" aria-hidden="true" />
         </button>
       </div>
 
       {/* Center: Otter-style Global "Ask or search" Pill Bar */}
-      <div className="flex max-w-[440px] flex-1 justify-center">
+      <div className="hidden min-w-0 max-w-[560px] flex-1 justify-center sm:flex">
         <button
           type="button"
           onClick={openPalette}
           aria-label={`Ask or search (${modKey}K)`}
-          className="glass-input flex h-8 w-full items-center gap-2 rounded-full px-3.5 text-left text-xs text-text-muted transition hover:border-[var(--glass-border-strong)] hover:text-text-primary"
+          className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-subtle)] px-3.5 text-left text-[13px] text-text-muted shadow-[inset_0_1px_0_color-mix(in_oklab,white_5%,transparent)] transition hover:border-[var(--glass-border-strong)] hover:bg-[var(--glass-surface)] hover:text-text-primary"
         >
-          <Search className="size-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-          <span className="flex-1 truncate">Ask or search conversations…</span>
+          <Search className="size-4 shrink-0 text-text-muted" aria-hidden="true" />
+          <span className="flex-1 truncate">Search meetings, notes, and transcripts</span>
           <Kbd className="rounded-md">{modKey}K</Kbd>
         </button>
       </div>
 
       {/* Right: Contextual Actions + Primary Record / Share Button */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex min-w-0 items-center justify-end gap-2 sm:min-w-[190px]">
         <button
           type="button"
           onClick={toggleTheme}
           aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
           title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-          className="glass-subtle flex size-8 items-center justify-center rounded-xl text-text-muted transition hover:text-text-primary"
+          className="flex size-9 items-center justify-center rounded-xl border border-transparent text-text-muted transition hover:border-[var(--glass-border)] hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary"
         >
           <SunMoon className="size-3.5" aria-hidden="true" />
         </button>
@@ -221,7 +230,7 @@ export function TopHeaderBar({
           onClick={() => void openHud()}
           aria-label="Open floating HUD recorder"
           title="Floating HUD recorder"
-          className="glass-subtle hidden size-8 items-center justify-center rounded-xl text-text-muted transition hover:text-text-primary sm:flex"
+          className="hidden size-9 items-center justify-center rounded-xl border border-transparent text-text-muted transition hover:border-[var(--glass-border)] hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary sm:flex"
         >
           <MonitorUp className="size-3.5" aria-hidden="true" />
         </button>
@@ -257,8 +266,8 @@ export function TopHeaderBar({
 
         <Button
           variant="primary"
-          size="sm"
-          className="rounded-full px-3.5"
+          size="md"
+          className="rounded-xl bg-gradient-to-r from-accent-primary to-accent-secondary px-4 font-semibold text-[#06110f] shadow-[0_10px_30px_-14px_color-mix(in_oklab,var(--brand-accent-primary)_80%,transparent)]"
           leading={<Mic className="size-3.5" />}
           onClick={openNewRecording}
         >
@@ -271,7 +280,7 @@ export function TopHeaderBar({
             onClick={toggleRightPanel}
             aria-label={rightPanelOpen ? "Collapse assistant panel" : "Expand assistant panel"}
             title={rightPanelOpen ? "Hide AI Assistant panel" : "Show AI Assistant panel"}
-            className="glass-subtle hidden size-8 items-center justify-center rounded-xl text-text-muted transition hover:text-text-primary lg:flex"
+            className="hidden size-9 items-center justify-center rounded-xl border border-transparent text-text-muted transition hover:border-[var(--glass-border)] hover:bg-[var(--glass-surface-subtle)] hover:text-text-primary lg:flex"
           >
             {rightPanelOpen ? (
               <PanelRightClose className="size-3.5" aria-hidden="true" />

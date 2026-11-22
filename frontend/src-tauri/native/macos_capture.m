@@ -25,6 +25,14 @@ static char *memo_capture_dup_utf8(NSString *str) {
     return copy;
 }
 
+int32_t memo_macos_screen_capture_permission_status(void) {
+    return CGPreflightScreenCaptureAccess() ? 1 : 0;
+}
+
+int32_t memo_macos_request_screen_capture_permission(void) {
+    return CGRequestScreenCaptureAccess() ? 1 : 0;
+}
+
 int32_t memo_macos_list_capture_targets(char **out_json, char **out_error) {
     if (out_json != NULL) {
         *out_json = NULL;

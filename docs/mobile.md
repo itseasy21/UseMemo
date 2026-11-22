@@ -1,6 +1,6 @@
 # Mobile audio
 
-Use Memo's capture, WAV, ASR, and diarization layers are portable Rust. Mobile builds add
+UseMemo's capture, WAV, ASR, and diarization layers are portable Rust. Mobile builds add
 a thin native layer for microphone consent and the platform audio session. This page
 separates what is implemented from what has actually been compiled and run.
 

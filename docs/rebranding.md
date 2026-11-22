@@ -6,7 +6,7 @@ repositories, and feature flags come from one JSON manifest, not from scattered 
 ## Source of truth
 
 ```text
-brand/brand.config.json              base manifest (default: Use Memo)
+brand/brand.config.json              base manifest (default: UseMemo)
 brand/profiles/<slug>.json           optional overlay, deep-merged at build time
 brand/assets/                        source SVG/PNG assets
 brand/generated/brand.resolved.json  committed codegen output

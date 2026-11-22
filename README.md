@@ -1,11 +1,11 @@
-# Use Memo
+# UseMemo
 
 **Local-First AI Meeting & Note Studio** — a white-label Tauri 2 + Next.js 15 desktop
 application that records, transcribes, summarizes, and exports meetings without sending
 content to a cloud service.
 
 This repository is the reference implementation of the white-label platform. The default
-brand is **Use Memo**; a second profile (`clinical-scribe-offline`) proves that identity,
+brand is **UseMemo**; a second profile (`clinical-scribe-offline`) proves that identity,
 theme, storage paths, icons, and model selection can be replaced without editing source
 code.
 

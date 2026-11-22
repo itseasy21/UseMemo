@@ -1,4 +1,4 @@
-# TODO — White-Label Use Memo Platform
+# TODO: White-Label UseMemo Platform
 
 Branch: `feat/white-label-platform`
 

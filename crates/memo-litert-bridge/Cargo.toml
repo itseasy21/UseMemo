@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Length-prefixed stdio client for the Use Memo LiteRT-LM worker"
+description = "Length-prefixed stdio client for the UseMemo LiteRT-LM worker"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

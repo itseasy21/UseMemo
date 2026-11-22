@@ -41,7 +41,7 @@ pub fn setup_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let product_name = app
         .try_state::<AppState>()
         .map(|s| s.brand.manifest().product_name.clone())
-        .unwrap_or_else(|| "Use Memo".to_string());
+        .unwrap_or_else(|| "UseMemo".to_string());
 
     let start_item = MenuItem::with_id(
         app,

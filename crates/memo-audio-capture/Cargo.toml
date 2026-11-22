@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Clean-room dual-stream audio DSP core for Use Memo"
+description = "Clean-room dual-stream audio DSP core for UseMemo"
 
 [features]
 default = ["hardware"]
