@@ -80,15 +80,11 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "should_release=true" >> "$GITHUB_OUTPUT"
 
-          node -e '
-            const fs = require("fs");
-            const v = process.argv[1];
-            for (const f of ["package.json", "frontend/package.json", "frontend/src-tauri/tauri.conf.json"]) {
-              const j = JSON.parse(fs.readFileSync(f, "utf8"));
-              j.version = v;
-              fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n");
-            }
-          ' "$version"
+          # Rewrite only the version value so generated brand outputs (which
+          # embed tauri.conf.json) stay byte-identical for `pnpm brand:check`.
+          for f in package.json frontend/package.json frontend/src-tauri/tauri.conf.json; do
+            sed -i -E "0,/\"version\": \"[0-9]+\.[0-9]+\.[0-9]+\"/s//\"version\": \"$version\"/" "$f"
+          done
           sed -i -E "s/^version = \"[0-9]+\.[0-9]+\.[0-9]+\"/version = \"$version\"/" Cargo.toml
 
           # Refresh Cargo.lock for the new workspace version.

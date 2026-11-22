@@ -738,9 +738,15 @@ export function generateTextFiles(manifest: BrandManifest, root = REPO_ROOT, ver
   ];
 }
 
+function normalizeEol(text: string): string {
+  return text.replace(/\r\n/g, "\n");
+}
+
 function writeIfChanged(absolutePath: string, content: string, checkOnly: boolean): boolean {
   const exists = fs.existsSync(absolutePath);
-  const previous = exists ? fs.readFileSync(absolutePath, "utf8") : null;
+  // Generated content always uses LF; on Windows, git may check files out
+  // with CRLF, so compare with line endings normalized.
+  const previous = exists ? normalizeEol(fs.readFileSync(absolutePath, "utf8")) : null;
   if (previous === content) return false;
   if (!checkOnly) {
     fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
@@ -792,7 +798,9 @@ function computeIconInputsDigest(manifest: BrandManifest, root: string): string 
     const full = path.resolve(root, rel);
     if (fs.existsSync(full)) {
       hash.update(rel);
-      hash.update(fs.readFileSync(full));
+      // All icon inputs are SVG text; normalize CRLF so the digest matches
+      // regardless of the platform's git line-ending conversion.
+      hash.update(normalizeEol(fs.readFileSync(full, "utf8")));
     }
   }
   return hash.digest("hex");
