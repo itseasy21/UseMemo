@@ -97,10 +97,27 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json frontend/package.json frontend/src-tauri/tauri.conf.json Cargo.toml Cargo.lock
-          git commit -m "chore: release v${version}"
+          # --allow-empty: the first release reuses package.json's version, so
+          # there may be no file changes but the tag still needs a commit.
+          git commit --allow-empty -m "chore: release v${version}"
           git tag -a "v${version}" -m "UseMemo v${version}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-          git push origin "v${version}"
+
+          # Another merge may land while cargo check runs; rebase and retry.
+          pushed=false
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              pushed=true
+              break
+            fi
+            git fetch origin "${GITHUB_REF_NAME}"
+            git rebase "origin/${GITHUB_REF_NAME}"
+            git tag -f -a "v${version}" -m "UseMemo v${version}"
+          done
+          if [ "$pushed" != "true" ]; then
+            echo "::error::Could not push release commit after 3 attempts."
+            exit 1
+          fi
+          git push -f origin "v${version}"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   package:
@@ -132,8 +149,24 @@ jobs:
           SHA: ${{ needs.version.outputs.sha }}
         run: |
           set -euo pipefail
-          files=$(find release-assets -type f | sort)
-          if [ -z "$files" ]; then
+          # GitHub release asset names must be unique; every platform dir ships
+          # its own SHA256SUMS.txt and release-manifest.json, so prefix
+          # colliding basenames with their platform directory.
+          mkdir -p release-assets-flat
+          declare -A seen=()
+          args=()
+          while IFS= read -r f; do
+            base=$(basename "$f")
+            if [ -n "${seen[$base]:-}" ]; then
+              name="$(basename "$(dirname "$f")")-${base}"
+              cp "$f" "release-assets-flat/${name}"
+              args+=("release-assets-flat/${name}")
+            else
+              seen[$base]=1
+              args+=("$f")
+            fi
+          done < <(find release-assets -type f | sort)
+          if [ ${#args[@]} -eq 0 ]; then
             echo "::error::No package artifacts were produced."
             exit 1
           fi
@@ -142,4 +175,4 @@ jobs:
             --title "UseMemo $TAG" \
             --notes "Automated release built from commit $SHA." \
             --verify-tag \
-            $files
+            "${args[@]}"
