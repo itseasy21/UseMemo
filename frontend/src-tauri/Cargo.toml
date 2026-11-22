@@ -19,7 +19,7 @@ default = ["asr", "system-audio"]
 # Bundled whisper.cpp inference for on-device transcription.
 asr = ["dep:whisper-rs"]
 # Capture what the machine plays, in addition to the microphone.
-system-audio = ["dep:screencapturekit", "dep:wasapi"]
+system-audio = ["dep:screencapturekit", "dep:wasapi", "dep:libpulse-sys"]
 
 [dependencies]
 async-trait = "0.1"
@@ -58,6 +58,9 @@ screencapturekit = { version = "10.0.3", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 wasapi = { version = "0.27", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libpulse-sys = { version = "1.23", optional = true }
 
 [dev-dependencies]
 memo-audio-capture = { path = "../../crates/memo-audio-capture" }

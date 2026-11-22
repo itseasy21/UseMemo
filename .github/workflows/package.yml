@@ -71,7 +71,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake clang libclang-dev pkg-config curl file \
-            libasound2-dev libayatana-appindicator3-dev libssl-dev \
+            libasound2-dev libayatana-appindicator3-dev libpulse-dev libssl-dev \
             libwebkit2gtk-4.1-dev librsvg2-dev libfuse2 patchelf rpm wget xdg-utils
 
       - name: Configure Windows LLVM libclang

@@ -9,13 +9,19 @@
 //! Backends:
 //! - macOS: ScreenCaptureKit audio-only `SCStream`.
 //! - Windows: WASAPI loopback on the default render endpoint.
+//! - Linux: the default sink's monitor source through libpulse (PulseAudio or
+//!   PipeWire via pipewire-pulse).
 //! - Everything else: unsupported, and the UI is told so.
 
+#[cfg(all(feature = "system-audio", target_os = "linux"))]
+mod linux;
 #[cfg(all(feature = "system-audio", target_os = "macos"))]
 mod macos;
 #[cfg(all(feature = "system-audio", target_os = "windows"))]
 mod windows;
 
+#[cfg(all(feature = "system-audio", target_os = "linux"))]
+pub use linux::SystemAudioCapture;
 #[cfg(all(feature = "system-audio", target_os = "macos"))]
 pub use macos::SystemAudioCapture;
 #[cfg(all(feature = "system-audio", target_os = "windows"))]
@@ -25,7 +31,11 @@ pub use windows::SystemAudioCapture;
 pub fn system_audio_supported() -> bool {
     cfg!(all(
         feature = "system-audio",
-        any(target_os = "macos", target_os = "windows")
+        any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux"
+        )
     ))
 }
 
@@ -39,9 +49,13 @@ pub fn system_audio_backend() -> Option<&'static str> {
     {
         Some("wasapi")
     }
+    #[cfg(all(feature = "system-audio", target_os = "linux"))]
+    {
+        Some("libpulse")
+    }
     #[cfg(not(all(
         feature = "system-audio",
-        any(target_os = "macos", target_os = "windows")
+        any(target_os = "macos", target_os = "windows", target_os = "linux")
     )))]
     {
         None
@@ -78,7 +92,7 @@ pub fn request_system_audio_permission() -> bool {
 /// type available on every target so callers do not need eight `cfg`s.
 #[cfg(not(all(
     feature = "system-audio",
-    any(target_os = "macos", target_os = "windows")
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
 )))]
 pub struct SystemAudioCapture {
     _private: (),
@@ -86,7 +100,7 @@ pub struct SystemAudioCapture {
 
 #[cfg(not(all(
     feature = "system-audio",
-    any(target_os = "macos", target_os = "windows")
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
 )))]
 impl SystemAudioCapture {
     pub fn start() -> crate::error::AppResult<Self> {
