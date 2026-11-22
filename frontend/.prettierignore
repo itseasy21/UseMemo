@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+src-tauri/target/
+src-tauri/tauri.conf.json
+src-tauri/tauri.android.conf.json
+src-tauri/tauri.ios.conf.json
+src-tauri/capabilities/default.json
+src/generated/
+src/styles/brand-tokens.css
+src-tauri/gen/
+pnpm-lock.yaml

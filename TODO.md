@@ -1,0 +1,139 @@
+# TODO: White-Label UseMemo Platform
+
+Branch: `feat/white-label-platform`
+
+Each completed item is committed separately. Legend: `[ ]` pending, `[~]` in progress, `[x]` done,
+`[!]` blocked on a documented external requirement.
+
+## M0 — Repository & planning
+
+- [x] M0.1 Create `feat/white-label-platform` branch
+- [x] M0.2 Write execution TODO and milestone map
+- [x] M0.3 Scaffold monorepo root (pnpm workspace, scripts, ignore rules)
+- [x] M0.4 Commit planning baseline
+
+## M1 — Host probe & upstream bootstrap
+
+- [x] M1.1 Implement `scripts/probe-host-hardware.sh` and emit `build-env.json`
+- [x] M1.2 Run probe on host and commit generated report
+- [x] M1.3 Clone upstream `Zackriya-Solutions/meetily` at stable tag and document revision
+- [x] M1.4 Inspect upstream audio capture stack and write harvest map
+- [x] M1.5 Extract/clean dual-stream ring-buffer audio crate (`crates/memo-audio-capture`)
+- [x] M1.6 Record upstream Cargo `[patch.crates-io]` fix in workspace root
+- [!] M1.7 Full upstream baseline `pnpm tauri build --debug` — Rust/cmake/protobuf are installed, but upstream
+      still needs an unshipped `llama-helper` binary plus network FFmpeg/ONNX downloads; recorded as blocked
+
+## M2 — White-label build engine
+
+- [x] M2.1 Author `brand/brand.config.json` and secondary brand profile
+- [x] M2.2 Author brand assets (icon, wordmarks, tray template)
+- [x] M2.3 Implement `scripts/apply-brand.ts` codegen (Tauri config, TS, Rust, CSS, resources)
+- [x] M2.4 Generate and commit brand outputs; add `brand:apply` / `brand:check` scripts
+- [x] M2.5 Add brand codegen tests and prove secondary-profile rebrand
+- [x] M2.6 Implement runtime `brand.override.json` merge in Rust
+      (allow-listed theme/assets/prompts only; identity and vault paths are immutable)
+
+
+## M3 — Core domain: storage, synthesis, verifier
+
+- [x] M3.1 SQLite schema + FTS5 migrations (meetings, notes, speakers, transcripts, screenshots, synthesis, FTS)
+- [x] M3.2 Storage repository with migrations, FTS5 search (`bm25`, `snippet`), and tests
+- [x] M3.3 Grounded context builder with indexed `[N-L#]`, `[T-MM:SS]`, `[S-MM:SS]` sources
+- [x] M3.4 Deterministic anti-hallucination verifier (evidence, owner, deadline gates) + tests
+- [x] M3.5 Synthesis orchestrator with strict JSON parsing (fences/prose tolerated) and fail-closed behavior
+- [x] M3.6 Markdown vault exporter with YAML frontmatter and relative WebP assets + tests
+- [x] M3.7 Screenshot dHash deduplication, WebP path planner, and interval policy + tests
+- [x] M3.8 Hardware-to-model tier selector and LiteRT model registry + tests
+
+## M4 — Tauri application shell & IPC
+
+- [x] M4.1 Tauri 2 config generation, capabilities, app/lib entrypoints
+- [x] M4.2 Tauri commands for brand, sessions, notes, screenshots, synthesis, search, export, models
+- [x] M4.3 Event contract constants and typed frontend event hooks (`audio:levels`, `asr:segment-delta`, `screenshot:captured`, `synthesis:progress`, `models:download-progress`)
+- [x] M4.4 Screenshot scheduler core (interval, manual snap, single-session capture lease)
+- [x] M4.5 LiteRT model downloader core (resumable, SHA-256 verification) + tests
+- [x] M4.6 Tauri `cargo check` / unit-test pass on host
+
+## M5 — LiteRT-LM sidecar bridge
+
+- [x] M5.1 C++20 `OmniEngine`/`OmniSession` worker source (`crates/memo-litert-bridge/cpp`)
+- [x] M5.2 Length-prefixed stdio IPC protocol + Rust client/session types
+- [x] M5.3 Bazel/CMake build scaffold and sidecar bundling docs
+- [!] M5.4 Compile worker against upstream LiteRT-LM — requires Bazel + multi-GB native build, not run on this host session
+
+## M6 — White-label UI (Next.js 15 / React 19)
+
+- [x] M6.1 Next.js static-export shell, brand tokens, theme provider
+- [x] M6.2 View 1: sidebar + command/search palette
+- [x] M6.3 View 2: synchronized 3-pane meeting studio (notes, transcript, filmstrip)
+- [x] M6.4 View 3: detached floating recording HUD route
+- [x] M6.5 View 4: synthesis bento canvas with evidence chips + bidirectional highlight state
+- [x] M6.6 View 5: LiteRT model manager / hardware studio
+- [x] M6.7 UI typecheck + production static build
+- [x] M6.8 Consumer-first home and navigation
+      - One dominant “New recording” action, a resume card, plain-language next steps, and a simplified recent list
+      - Engineering metadata removed from the home screen; the mobile header no longer duplicates the brand mark
+      - Checked in headless Chrome at desktop dark/light and 390 px mobile widths
+
+## M7 — Verification & delivery
+
+- [x] M7.1 Air-gapped guard: no cloud SDK/endpoint strings; network policy test
+- [x] M7.2 Hallucination acceptance test: `"Bob"` → `"Unassigned"`, `"Next Friday"` → `"Not specified"`
+- [x] M7.3 White-label rebrand acceptance test (secondary profile changes title, storage dir, accents)
+- [x] M7.4 Screenshot/export acceptance test on synthetic 35s session
+- [x] M7.5 Full test suite + format/lint gate
+- [x] M7.6 Final docs, commit log audit, and branch summary
+
+## M8 — Production audio and on-device ASR
+
+- [x] M8.1 Streaming WAV writer/reader (header patch on finalize and `Drop`) + 16 tests
+- [x] M8.2 `cpal` microphone capture behind the `hardware` feature, with bounded backpressure
+- [x] M8.3 `AudioCaptureSession`: 48 kHz mix → 16 kHz mono archive, meters, silence/overrun facts
+- [x] M8.4 Recording lifecycle: capture before DB state, rollback on failure, `recording:stopped`
+- [x] M8.5 Mandatory `ModelFile.sha256`; real Whisper small/tiny and Gemma E2B/E4B digests
+- [x] M8.6 whisper.cpp engine behind `AsrEngine`, 30 s blocks, silence skipping, log suppression
+- [x] M8.7 Transactional transcript replacement + `asr:progress` event
+- [x] M8.8 macOS microphone usage string and audio-input entitlement, with codegen test
+- [x] M8.9 Real-model ASR acceptance (`MEMO_ASR_E2E=1`) and Local recordings UI
+- [x] M8.10 Documentation honesty pass (README, architecture, blockers, acceptance, delivery)
+- [x] M8.11 System-audio loopback
+      - macOS: ScreenCaptureKit audio-only tap → `audio-system.wav`; gated `MEMO_SYSTEM_AUDIO_E2E=1` acceptance passes on the recorded host
+      - Windows: WASAPI loopback backend written; type-checks and lints for `x86_64-pc-windows-msvc` from macOS, but has not run on a Windows host here
+      - Transcript merges both archives on one clock with `You`/`Them` channel labels; `audio_capabilities` drives the UI toggle
+      - Echo cancellation intentionally absent; headphones recommended
+- [x] M8.12 Speaker diarization (segmentation + embedding + clustering)
+      - Clean-room `memo-diarize`: energy VAD → MFCC mean/std embeddings → deterministic k-means with separation/duration gates; 18 tests
+      - Post-hoc on the loopback archive only; the microphone stays `You`, one remote voice stays `Them`, and separable voices become `Speaker N`
+      - Per-meeting toggle (`diarization_enabled`, migration 0003) and `speakerCount` in the transcription outcome
+      - VAD merges sub-second fragments before the duration floor, so a quieter speaker is not dropped; the loopback acceptance found and covers that case
+      - Verified on synthetic timbres and on two synthesized macOS voices captured through ScreenCaptureKit (gated `MEMO_DIARIZATION_E2E=1`); a real human meeting, crosstalk, and music/noise beds remain unverified
+- [x] M8.13 iOS/Android audio-session and permission plumbing
+      - First-party `memo-mobile-audio` Tauri plugin: Android `RECORD_AUDIO` consent, manifest permission, and transient audio focus; iOS record permission, `AVAudioSession` `.playAndRecord`, and session release
+      - Generated `Info.ios.plist` with `NSMicrophoneUsageDescription` and `UIBackgroundModes: audio`; the recording dialog requests consent and activates/releases the session before/after capture
+      - Desktop is a no-op; 5 plugin tests pass
+- [x] M8.13a Compile and run mobile capture on a device
+      - Android arm64 debug APK built with NDK r29 and run on an API 36 arm64 emulator; Android is limited to one `main` WebView because the desktop HUD window broke native IPC callback delivery
+      - Native `RECORD_AUDIO` prompt verified end to end after resetting permission flags; consent returned `granted=true`, then the session reached `capturing`
+      - Transient-exclusive audio focus, 16 kHz mono WAV, completed SQLite meeting row, and focus release verified after stop
+      - Remaining limits: physical Android device, audible microphone signal (the emulator input was near-silent), iOS, Bluetooth/interruption/background recording, and ASR in this test APK
+- [x] M8.14 Packaging, local signing, checksums, and CI
+      - `pnpm package:release` builds/stages DMG/MSI/AppImage-family installers, verifies the macOS signature and audio-input entitlement, and writes `SHA256SUMS.txt` plus `release-manifest.json`
+      - Generated `Info.plist` and `signingIdentity: "-"` produce valid ad-hoc, hardened-runtime local bundles; `APPLE_SIGNING_IDENTITY` overrides the config for Developer ID builds
+      - Local DMG verified with `codesign`, entitlement inspection, checksum verification, and a DMG mount; `spctl` rejects it as expected because only an Apple Development certificate is installed
+      - CI matrix for macOS arm64/x86_64, Windows, and Linux added but not executed in this workspace
+      - `createUpdaterArtifacts` stays false: offline updates are checksum-verified installer replacements, documented in `docs/packaging.md`
+
+## Known external blockers
+
+- Native LiteRT-LM worker compilation requires Bazel and the upstream `google-ai-edge/LiteRT-LM`
+  tree. The source, IPC contract, and build scaffold are committed; compilation is out of scope for
+  this host session because it is a multi-GB native build.
+- Model weights are large downloads from `huggingface.co` and are not vendored in git.
+  Every catalog artifact pins a publisher SHA-256; the downloader verifies it and deletes a
+  mismatched partial file.
+- System-audio loopback is implemented for macOS and type-checks for the Windows target
+  (runtime unverified there). Android arm64 microphone capture is compiled and verified on
+  an emulator; iOS, physical-device behavior, audible-signal quality, and a production
+  Android ASR build remain unverified. Developer ID notarization remains blocked; the local
+  packaging path is documented in `docs/packaging.md` and the blockers in
+  `docs/external-blockers.md`.

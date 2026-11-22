@@ -1,0 +1,114 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "feat/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-and-guards:
+    name: frontend, brand, & air-gap guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify generated brand outputs
+        run: pnpm brand:check
+
+      - name: Run brand, release, and air-gap test suites
+        run: |
+          pnpm brand:test
+          pnpm package:test
+          pnpm airgap:test
+
+      - name: Typecheck frontend
+        run: pnpm typecheck
+
+      - name: Build static Next.js export
+        run: pnpm build
+
+      - name: Run frontend unit & export verification tests
+        run: pnpm --filter @use-memo/frontend test
+
+  rust-workspace:
+    name: rust (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-arm64 omitted: private repos have no free hosted macOS
+          # runners and the job is cancelled instantly. macOS is covered by
+          # manual install-level testing until a macOS runner is available.
+          - name: linux-x86_64
+            os: ubuntu-24.04
+            platform: linux
+          - name: windows-x86_64
+            os: windows-latest
+            platform: windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      MEMO_OCR_FAST: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.90.0
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-${{ matrix.name }}
+
+      - name: Install Linux system libraries
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake clang libclang-dev pkg-config \
+            libasound2-dev libayatana-appindicator3-dev libssl-dev \
+            libwebkit2gtk-4.1-dev librsvg2-dev
+
+      - name: Configure Windows LLVM libclang
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          if (Test-Path "C:\Program Files\LLVM\bin") {
+            echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
+
+      - name: Check Rust workspace formatting
+        if: matrix.platform == 'linux'
+        run: cargo fmt --all -- --check
+
+      - name: Run workspace unit & integration tests
+        run: cargo test --workspace
+
+      - name: Verify feature-minimal build (`--no-default-features`)
+        run: cargo test -p use-memo --no-default-features
+
+      - name: Run Clippy with warnings denied
+        run: cargo clippy --workspace --all-targets -- -D warnings

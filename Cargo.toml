@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+    "frontend/src-tauri",
+    "crates/memo-audio-capture",
+    "crates/memo-diarize",
+    "crates/memo-litert-bridge",
+    "crates/memo-llama-worker",
+    "crates/memo-mobile-audio",
+]
+exclude = ["upstream"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+# Floor imposed by the resolved Tauri 2.12 graph and by `wasapi` 0.27 on
+# Windows (1.85). The lockfile, not this field, decides what actually builds.
+rust-version = "1.90"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+# Upstream Meetily v0.4.1 pins `cpal` to RustAudio/cpal@51c3b43 ("Fix macos
+# non-default audio output") inside its member manifest. Its `esaxx-rs` fork
+# branch is gone (HTTP 404) and no code references that crate.
+#
+# We do not carry the patch: memo-audio-capture is dependency-free DSP, and a
+# git pin would make offline builds unreproducible. If a hardware backend is
+# added later, evaluate crates.io cpal 0.15.3 first (it already has WASAPI
+# loopback) and keep any git pin checksum-locked in Cargo.lock.
+#
+# [patch.crates-io]
+# cpal = { git = "https://github.com/RustAudio/cpal", rev = "51c3b43" }

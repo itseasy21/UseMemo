@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-14T00:00:00Z",
+  "host": {
+    "os": "Darwin",
+    "osVersion": "27.2.1",
+    "kernel": "27.2.0",
+    "arch": "arm64",
+    "displayServer": "quartz",
+    "cpuModel": "Apple M1 Pro",
+    "cpuCores": 8,
+    "ramBytes": 17179869184,
+    "ramGb": 16
+  },
+  "accelerators": {
+    "metal": true,
+    "vulkan": false,
+    "opencl": false,
+    "xnnpackCpu": true,
+    "npu": "apple-neural-engine",
+    "gpuModel": "Apple M1 Pro"
+  },
+  "audio": {
+    "backends": "coreaudio,screencapturekit",
+    "screenCaptureKit": true,
+    "coreAudio": true,
+    "pipewire": false,
+    "pulseAudio": false,
+    "wasapi": false
+  },
+  "toolchain": {
+    "node": "v24.21.0",
+    "pnpm": "12.11.2",
+    "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+    "cargo": "cargo 1.100.0 (3acc79c0c 2026-11-05)",
+    "cmake": "cmake version 4.5.0",
+    "protoc": "libprotoc 36.2",
+    "ffmpeg": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+    "bazel": "",
+    "xcodePath": "/Applications/Xcode.app/Contents/Developer",
+    "xcodeVersion": "Xcode 27.2"
+  },
+  "recommendation": {
+    "tier": "high",
+    "reason": ">= 16 GB RAM",
+    "asr": {
+      "repo": "ggerganov/whisper.cpp",
+      "filename": "ggml-small-q5_1.bin",
+      "downloadBytes": 190085487
+    },
+    "slm": {
+      "repo": "litert-community/gemma-4-E4B-it-litert-lm",
+      "filename": "gemma-4-E4B-it.litertlm",
+      "downloadBytes": 3659530240
+    },
+    "keepAsrWarmDuringSynthesis": true
+  }
+}

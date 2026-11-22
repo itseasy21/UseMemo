@@ -1,0 +1,34 @@
+{
+  "name": "use-memo",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "brand:apply": "tsx scripts/apply-brand.ts",
+    "brand:check": "tsx scripts/apply-brand.ts --check",
+    "brand:test": "node --import tsx --test scripts/apply-brand.test.ts",
+    "package:release": "tsx scripts/package-release.ts",
+    "package:test": "node --import tsx --test scripts/package-release.test.ts",
+    "airgap:test": "node --import tsx --test scripts/airgap.test.ts",
+    "probe": "bash scripts/probe-host-hardware.sh",
+    "dev": "pnpm --filter @use-memo/frontend dev",
+    "build": "pnpm --filter @use-memo/frontend build",
+    "typecheck": "pnpm --filter @use-memo/frontend typecheck",
+    "tauri:dev": "pnpm --filter @use-memo/frontend tauri:dev",
+    "tauri:build": "pnpm --filter @use-memo/frontend tauri:build",
+    "test:rust": "cargo test --workspace",
+    "test:frontend": "pnpm --filter @use-memo/frontend test",
+    "test": "pnpm brand:test && pnpm package:test && pnpm airgap:test && pnpm test:frontend && pnpm test:rust",
+    "format:check": "cargo fmt --all -- --check && pnpm --filter @use-memo/frontend format:check"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.3",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  }
+}

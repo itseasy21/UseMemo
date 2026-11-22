@@ -1,0 +1,9 @@
+[package]
+name = "memo-diarize"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Clean-room, dependency-free speaker diarization for UseMemo"
+
+[dependencies]

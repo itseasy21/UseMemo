@@ -1,0 +1,63 @@
+{
+  "brandId": "clinical-scribe-offline",
+  "productName": "ClinicalScribe Offline",
+  "tagline": "Air-Gapped Clinical Meeting Notes",
+  "companyName": "ClinicalScribe Local Cooperative",
+  "bundleIdentifier": "org.clinicalscribe.offline",
+  "binaryName": "clinical-scribe-offline",
+  "deepLinkScheme": "clinicalscribe",
+  "storageDirName": "clinical-scribe-offline",
+  "sqliteFileName": "clinical_scribe_vault.db",
+  "licenseType": "GPL-3.0-or-later",
+  "theme": {
+    "defaultMode": "light",
+    "tokens": {
+      "dark": {
+        "accentPrimary": "oklch(0.70 0.14 200)",
+        "accentSecondary": "oklch(0.64 0.13 300)",
+        "recordingPulse": "oklch(0.62 0.20 20)"
+      },
+      "light": {
+        "bgPrimary": "oklch(0.99 0.004 220)",
+        "accentPrimary": "oklch(0.48 0.13 200)",
+        "accentSecondary": "oklch(0.46 0.12 300)",
+        "recordingPulse": "oklch(0.56 0.20 20)"
+      }
+    }
+  },
+  "features": {
+    "enableGnuKeybindings": false
+  },
+  "modelRegistry": {
+    "defaultSlmRepo": "bartowski/google_gemma-3-4b-it-GGUF"
+  },
+  "synthesisTemplate": {
+    "name": "Clinical SOAP Note",
+    "sections": [
+      {
+        "key": "subjective",
+        "label": "Subjective",
+        "kind": "bullets",
+        "description": "Patient-reported symptoms, history of present illness, and stated concerns"
+      },
+      {
+        "key": "objective",
+        "label": "Objective",
+        "kind": "bullets",
+        "description": "Observed vitals, physical exam findings, and diagnostic/slide measurements"
+      },
+      {
+        "key": "assessment",
+        "label": "Assessment",
+        "kind": "decisions",
+        "description": "Clinical impressions, differential assessment, and documented rationale"
+      },
+      {
+        "key": "plan",
+        "label": "Plan & Follow-Up",
+        "kind": "actions",
+        "description": "Treatment plan, orders, clinician owner, and follow-up timeframe"
+      }
+    ]
+  }
+}

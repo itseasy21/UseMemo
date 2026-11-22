@@ -1,0 +1,8 @@
+[default]
+description = "Microphone permission and audio-session access for mobile recording."
+permissions = [
+  "allow-microphone-permission",
+  "allow-request-microphone-permission",
+  "allow-configure-audio-session",
+  "allow-deactivate-audio-session",
+]

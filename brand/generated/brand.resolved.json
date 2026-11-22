@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json.schemastore.org/brand",
+  "brandId": "use-memo",
+  "productName": "UseMemo",
+  "tagline": "Local-First AI Meeting & Note Studio",
+  "companyName": "UseMemo Project (GNU GPLv3)",
+  "bundleIdentifier": "org.gnu.usememo",
+  "binaryName": "use-memo",
+  "deepLinkScheme": "usememo",
+  "storageDirName": "use-memo",
+  "sqliteFileName": "use_memo_vault.db",
+  "licenseType": "GPL-3.0-or-later",
+  "copyrightYear": 2026,
+  "assets": {
+    "appIconSvg": "./brand/assets/icon.svg",
+    "trayIconMonochrome": "./brand/assets/tray-Template.png",
+    "wordmarkDark": "./brand/assets/wordmark-dark.svg",
+    "wordmarkLight": "./brand/assets/wordmark-light.svg"
+  },
+  "theme": {
+    "defaultMode": "dark",
+    "radius": "0.625rem",
+    "fontSans": "Inter, system-ui, sans-serif",
+    "fontMono": "JetBrains Mono, monospace",
+    "tokens": {
+      "dark": {
+        "bgPrimary": "oklch(0.14 0.01 255)",
+        "bgElevated": "oklch(0.18 0.012 255)",
+        "bgGlass": "oklch(0.18 0.012 255 / 0.78)",
+        "borderSubtle": "oklch(0.26 0.015 255)",
+        "textPrimary": "oklch(0.96 0.005 255)",
+        "textMuted": "oklch(0.68 0.012 255)",
+        "accentPrimary": "oklch(0.72 0.16 165)",
+        "accentSecondary": "oklch(0.68 0.15 250)",
+        "recordingPulse": "oklch(0.65 0.22 25)"
+      },
+      "light": {
+        "bgPrimary": "oklch(0.985 0.003 85)",
+        "bgElevated": "oklch(1.0 0.0 0)",
+        "bgGlass": "oklch(1.0 0.0 0 / 0.82)",
+        "borderSubtle": "oklch(0.90 0.008 85)",
+        "textPrimary": "oklch(0.18 0.01 255)",
+        "textMuted": "oklch(0.52 0.012 255)",
+        "accentPrimary": "oklch(0.55 0.17 165)",
+        "accentSecondary": "oklch(0.52 0.16 250)",
+        "recordingPulse": "oklch(0.58 0.22 25)"
+      }
+    }
+  },
+  "features": {
+    "airGappedEnforcement": true,
+    "enablePeriodicScreenshots": true,
+    "defaultScreenshotIntervalSec": 10,
+    "enableSlideVisionOCR": true,
+    "enableVoiceprintEnrollment": true,
+    "enableGnuKeybindings": true
+  },
+  "modelRegistry": {
+    "hfBaseUrl": "https://huggingface.co",
+    "defaultAsrRepo": "ggerganov/whisper.cpp",
+    "fallbackAsrRepo": "ggerganov/whisper.cpp",
+    "diarizationRepo": "litert-community/Speaker-Diarization-LiteRT",
+    "defaultSlmRepo": "Qwen/Qwen2.5-3B-Instruct-GGUF",
+    "proSlmRepo": "bartowski/google_gemma-3-4b-it-GGUF"
+  }
+}
