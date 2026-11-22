@@ -26,7 +26,7 @@ const profile = loadManifest({ profile: "clinical-scribe-offline" });
 test("base manifest is valid and branded for the default product", () => {
   assert.deepEqual(validateManifest(base), []);
   assert.equal(base.brandId, "use-memo");
-  assert.equal(base.productName, "Use Memo");
+  assert.equal(base.productName, "UseMemo");
   assert.equal(base.bundleIdentifier, "org.gnu.usememo");
   assert.equal(base.theme.defaultMode, "dark");
 });
@@ -127,7 +127,7 @@ test("macOS bundle declares the microphone entitlement and usage string", () => 
   const info = renderInfoPlist(base);
   assert.match(info, /NSMicrophoneUsageDescription/);
   assert.match(info, /Nothing is uploaded/);
-  assert.match(info, /Use Memo records meeting audio/);
+  assert.match(info, /UseMemo records meeting audio/);
   assert.match(info, /NSHumanReadableCopyright/);
   // The generated file on disk must match the manifest so `brand:check` catches
   // a hand-edited plist that would leak the reference brand.
@@ -146,7 +146,7 @@ test("macOS plist follows a rebrand and escapes XML", () => {
   rebranded.productName = "Clinical & Co <Offline>";
   const info = renderInfoPlist(rebranded);
   assert.match(info, /Clinical &amp; Co &lt;Offline&gt; records meeting audio/);
-  assert.doesNotMatch(info, /Use Memo/);
+  assert.doesNotMatch(info, /UseMemo/);
   assert.match(info, /© \d{4} ClinicalScribe Local Cooperative/);
 });
 
@@ -159,7 +159,7 @@ test("iOS bundle declares the microphone usage string and background audio", () 
 
   const info = renderInfoIosPlist(base);
   assert.match(info, /NSMicrophoneUsageDescription/);
-  assert.match(info, /Use Memo records meeting audio on this device/);
+  assert.match(info, /UseMemo records meeting audio on this device/);
   assert.match(info, /Nothing is uploaded/);
   assert.match(info, /UIBackgroundModes/);
   assert.match(info, /<string>audio<\/string>/);
@@ -175,7 +175,7 @@ test("iOS plist follows a rebrand and escapes XML", () => {
   rebranded.productName = "Clinical & Co <Mobile>";
   const info = renderInfoIosPlist(rebranded);
   assert.match(info, /Clinical &amp; Co &lt;Mobile&gt; records meeting audio on this device/);
-  assert.doesNotMatch(info, /Use Memo/);
+  assert.doesNotMatch(info, /UseMemo/);
   assert.match(info, /© \d{4} ClinicalScribe Local Cooperative/);
 });
 
@@ -186,7 +186,7 @@ test("brand token CSS uses OKLCH values and Tailwind v4 theme mappings", () => {
   assert.match(css, /@theme inline/);
   assert.match(css, /--color-accent-primary: var\(--brand-accent-primary\)/);
   assert.match(css, /--font-sans: var\(--brand-font-sans\)/);
-  assert.doesNotMatch(css, /Use Memo/);
+  assert.doesNotMatch(css, /UseMemo/);
 });
 
 test("TypeScript and Rust brand outputs are deterministic and embedded", () => {

@@ -5,9 +5,9 @@
 export const BRAND = {
     "$schema": "https://json.schemastore.org/brand",
     "brandId": "use-memo",
-    "productName": "Use Memo",
+    "productName": "UseMemo",
     "tagline": "Local-First AI Meeting & Note Studio",
-    "companyName": "Use Memo Project (GNU GPLv3)",
+    "companyName": "UseMemo Project (GNU GPLv3)",
     "bundleIdentifier": "org.gnu.usememo",
     "binaryName": "use-memo",
     "deepLinkScheme": "usememo",
