@@ -12,6 +12,7 @@ import {
   invokeCommand,
   invokeHost,
   invokeRequired,
+  type CallDetectionStatusRecord,
   type MeetingRecord,
   type ScreenshotCapturedPayload,
   type ScreenshotRecord,
@@ -56,6 +57,8 @@ export type VisualCaptureTargetRecord = {
   width: number;
   height: number;
 };
+
+export type { CallDetectionStatusRecord };
 
 export type CaptureTargetsResponseRecord = {
   microphones: string[];
@@ -647,6 +650,27 @@ export function deleteFolder(folderId: string) {
 
 export function listFolders() {
   return invokeCommand<FolderRecord[]>("list_folders");
+}
+
+// --- Call detection ---
+
+export function callDetectionStatus() {
+  return invokeCommand<CallDetectionStatusRecord>("call_detection_status");
+}
+
+export function setCallDetectionEnabled(enabled: boolean) {
+  return invokeHost<CallDetectionStatusRecord>("set_call_detection_enabled", { enabled });
+}
+
+export function setCallDetectionAppEnabled(appId: string, enabled: boolean) {
+  return invokeHost<CallDetectionStatusRecord>("set_call_detection_app_enabled", {
+    appId,
+    enabled,
+  });
+}
+
+export function resetCallDetectionApps() {
+  return invokeHost<CallDetectionStatusRecord>("reset_call_detection_apps");
 }
 
 // --- Models & Hardware ---

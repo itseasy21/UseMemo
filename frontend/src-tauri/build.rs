@@ -69,6 +69,32 @@ fn compile_apple_vision_ocr(target_os: &str) {
             .expect("failed to invoke xcrun clang for macos_capture.m");
         assert!(cap_status.success(), "compiling macos_capture.m failed");
         objects.push(cap_obj);
+
+        let signal_src = manifest_dir.join("native/macos_call_signal.m");
+        println!("cargo:rerun-if-changed={}", signal_src.display());
+        let signal_obj = out_dir.join("macos_call_signal.o");
+        let signal_status = Command::new("xcrun")
+            .args([
+                "--sdk",
+                "macosx",
+                "clang",
+                "-mmacosx-version-min=12.0",
+                "-fobjc-arc",
+                "-O2",
+                "-arch",
+                clang_arch,
+                "-c",
+                &signal_src.to_string_lossy(),
+                "-o",
+                &signal_obj.to_string_lossy(),
+            ])
+            .status()
+            .expect("failed to invoke xcrun clang for macos_call_signal.m");
+        assert!(
+            signal_status.success(),
+            "compiling macos_call_signal.m failed"
+        );
+        objects.push(signal_obj);
     }
 
     let mut ar_cmd = Command::new("ar");
@@ -86,6 +112,10 @@ fn compile_apple_vision_ocr(target_os: &str) {
     println!("cargo:rustc-link-lib=framework=Vision");
     println!("cargo:rustc-link-lib=framework=CoreGraphics");
     println!("cargo:rustc-link-lib=framework=Foundation");
+    if target_os == "macos" {
+        println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=CoreAudio");
+    }
 }
 
 fn main() {

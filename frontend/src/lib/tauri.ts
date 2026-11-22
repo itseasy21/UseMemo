@@ -164,6 +164,34 @@ export type TrayMicrophonePayload = {
   label: string;
 };
 
+export type CallDetectedPayload = {
+  callId: string;
+  appId: string;
+  appName: string;
+  confidence: number;
+};
+
+export type CallEndedPayload = {
+  callId: string;
+  appId: string;
+  appName: string;
+};
+
+export type CallDismissedPayload = {
+  callId: string | null;
+};
+
+export type CallDetectionStatusRecord = {
+  supported: boolean;
+  enabled: boolean;
+  backend: string;
+  detail: string;
+  ignoredApps: string[];
+  detectorRunning: boolean;
+  observedApps: string[];
+  lastError: string | null;
+};
+
 export type HostEventMap = {
   "audio:levels": AudioLevelsPayload;
   "asr:segment-delta": AsrSegmentDeltaPayload;
@@ -175,6 +203,11 @@ export type HostEventMap = {
   "recording:stopped": RecordingStoppedPayload;
   "tray:action": TrayActionPayload;
   "tray:microphone-changed": TrayMicrophonePayload;
+  "call-detect://started": CallDetectedPayload;
+  "call-detect://ended": CallEndedPayload;
+  "call-detect://accepted": CallDetectedPayload;
+  "call-detect://dismissed": CallDismissedPayload;
+  "call-detect://settings-changed": CallDetectionStatusRecord;
 };
 
 export const HOST_EVENTS = {
@@ -188,6 +221,11 @@ export const HOST_EVENTS = {
   recordingStopped: "recording:stopped",
   trayAction: "tray:action",
   trayMicrophoneChanged: "tray:microphone-changed",
+  callDetected: "call-detect://started",
+  callEnded: "call-detect://ended",
+  callAccepted: "call-detect://accepted",
+  callDismissed: "call-detect://dismissed",
+  callDetectionSettingsChanged: "call-detect://settings-changed",
 } as const satisfies Record<string, keyof HostEventMap>;
 
 export type UnlistenFn = () => void;
