@@ -1,0 +1,145 @@
+name: release
+
+# Builds versioned installers and publishes a GitHub Release whenever code is
+# merged into the default branch. The version job bumps package.json,
+# frontend/package.json, tauri.conf.json, and the Cargo workspace version,
+# commits "chore: release vX.Y.Z", tags it, and the package workflow builds
+# installers from that exact commit.
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: compute release version
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      sha: ${{ steps.bump.outputs.sha }}
+      should_release: ${{ steps.bump.outputs.should_release }}
+    env:
+      MEMO_OCR_FAST: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.90.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-version
+
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake clang libclang-dev pkg-config \
+            libasound2-dev libayatana-appindicator3-dev libssl-dev \
+            libwebkit2gtk-4.1-dev librsvg2-dev
+
+      - name: Bump version, commit, and tag
+        id: bump
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          latest=$(git tag -l 'v*' | sort -V | tail -n1 || true)
+          version=""
+          if [ -z "$latest" ]; then
+            candidate=$(node -p "require('./package.json').version")
+            if git rev-parse -q --verify "refs/tags/v${candidate}" >/dev/null; then
+              version=$(node -e "const p='$candidate'.split('.').map(Number); console.log(p[0]+'.'+p[1]+'.'+(p[2]+1))")
+            else
+              version="$candidate"
+            fi
+          elif [ "$(git rev-list -n1 "$latest")" != "$HEAD_SHA" ]; then
+            version=$(node -e "const p='$latest'.replace(/^v/,'').split('.').map(Number); if(p.length!==3||p.some(Number.isNaN)){process.exit(1)}; console.log(p[0]+'.'+p[1]+'.'+(p[2]+1))")
+          fi
+
+          if [ -z "$version" ]; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "HEAD is already tagged as $latest; skipping release."
+            exit 0
+          fi
+
+          echo "Releasing v${version} (previous tag: ${latest:-none})"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+
+          node -e '
+            const fs = require("fs");
+            const v = process.argv[1];
+            for (const f of ["package.json", "frontend/package.json", "frontend/src-tauri/tauri.conf.json"]) {
+              const j = JSON.parse(fs.readFileSync(f, "utf8"));
+              j.version = v;
+              fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n");
+            }
+          ' "$version"
+          sed -i -E "s/^version = \"[0-9]+\.[0-9]+\.[0-9]+\"/version = \"$version\"/" Cargo.toml
+
+          # Refresh Cargo.lock for the new workspace version.
+          cargo check --workspace --quiet
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json frontend/package.json frontend/src-tauri/tauri.conf.json Cargo.toml Cargo.lock
+          git commit -m "chore: release v${version}"
+          git tag -a "v${version}" -m "UseMemo v${version}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "v${version}"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: build installers
+    needs: version
+    if: needs.version.outputs.should_release == 'true'
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ needs.version.outputs.sha }}
+    secrets: inherit
+
+  publish:
+    name: publish GitHub release
+    needs: [version, package]
+    if: always() && needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: use-memo-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.version.outputs.version }}
+          SHA: ${{ needs.version.outputs.sha }}
+        run: |
+          set -euo pipefail
+          files=$(find release-assets -type f | sort)
+          if [ -z "$files" ]; then
+            echo "::error::No package artifacts were produced."
+            exit 1
+          fi
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "UseMemo $TAG" \
+            --notes "Automated release built from commit $SHA." \
+            --verify-tag \
+            $files
