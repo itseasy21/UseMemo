@@ -17,6 +17,7 @@ import {
   renderChecksumFile,
   renderReleaseManifest,
   stageArtifacts,
+  tauriBuildEnv,
   type ReleaseArtifact,
 } from "./package-release.ts";
 
@@ -222,4 +223,17 @@ test("packaging without a bundle fails with an actionable message", () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("tauri build env drops empty Apple secrets so ad-hoc signing still applies", () => {
+  const env = tauriBuildEnv({
+    PATH: "/usr/bin",
+    APPLE_SIGNING_IDENTITY: "",
+    APPLE_ID: "",
+    APPLE_TEAM_ID: "TEAM123",
+  });
+  assert.equal(env.PATH, "/usr/bin");
+  assert.ok(!("APPLE_SIGNING_IDENTITY" in env));
+  assert.ok(!("APPLE_ID" in env));
+  assert.equal(env.APPLE_TEAM_ID, "TEAM123");
 });

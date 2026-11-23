@@ -22,6 +22,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -376,6 +377,19 @@ export function stageLlamaWorkerSidecar(root = REPO_ROOT): string {
   return sidecarDest;
 }
 
+/**
+ * CI expands unset secrets to empty strings. Tauri treats an empty
+ * APPLE_SIGNING_IDENTITY as a real identity (overriding the ad-hoc "-" in
+ * tauri.conf.json) and codesign then fails, so empty APPLE_* values are dropped.
+ */
+export function tauriBuildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const cleaned: NodeJS.ProcessEnv = { ...env };
+  for (const [key, value] of Object.entries(cleaned)) {
+    if (key.startsWith("APPLE_") && value === "") delete cleaned[key];
+  }
+  return cleaned;
+}
+
 export function packageRelease(options: PackageOptions = {}): PackageResult {
   const root = options.root ?? REPO_ROOT;
   const platform = options.platform ?? currentPlatform();
@@ -401,21 +415,31 @@ export function packageRelease(options: PackageOptions = {}): PackageResult {
 
     stageLlamaWorkerSidecar(root);
 
-    const sidecarOverlay = JSON.stringify({
-      bundle: {
-        externalBin: ["binaries/memo-litert-worker"],
-      },
-    });
-    console.log(`> tauri build (${manifest.productName} ${version})`);
-    const build = spawnSync(
-      "pnpm",
-      ["--filter", "@use-memo/frontend", "exec", "tauri", "build", "--config", sidecarOverlay],
-      {
-        cwd: root,
-        stdio: "inherit",
-        shell: process.platform === "win32",
-      },
+    // The overlay goes through a file: on Windows the build runs via cmd.exe,
+    // which strips the quotes out of an inline JSON argument.
+    const overlayDir = fs.mkdtempSync(path.join(os.tmpdir(), "use-memo-tauri-"));
+    const overlayPath = path.join(overlayDir, "sidecar.conf.json");
+    fs.writeFileSync(
+      overlayPath,
+      JSON.stringify({ bundle: { externalBin: ["binaries/memo-litert-worker"] } }),
     );
+    const overlayArg = process.platform === "win32" ? `"${overlayPath}"` : overlayPath;
+    console.log(`> tauri build (${manifest.productName} ${version})`);
+    let build: ReturnType<typeof spawnSync>;
+    try {
+      build = spawnSync(
+        "pnpm",
+        ["--filter", "@use-memo/frontend", "exec", "tauri", "build", "--config", overlayArg],
+        {
+          cwd: root,
+          stdio: "inherit",
+          shell: process.platform === "win32",
+          env: tauriBuildEnv(process.env),
+        },
+      );
+    } finally {
+      fs.rmSync(overlayDir, { recursive: true, force: true });
+    }
     if (build.status !== 0) {
       throw new Error(`Tauri build failed with exit code ${build.status ?? "unknown"}`);
     }
