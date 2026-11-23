@@ -738,7 +738,7 @@ export function generateTextFiles(manifest: BrandManifest, root = REPO_ROOT, ver
   ];
 }
 
-function normalizeEol(text: string): string {
+export function normalizeEol(text: string): string {
   return text.replace(/\r\n/g, "\n");
 }
 

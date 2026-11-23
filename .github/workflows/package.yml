@@ -47,6 +47,22 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.sha }}
 
+      - name: Select Xcode with the macOS 26 SDK
+        if: matrix.platform == 'macos'
+        run: |
+          # apple-metal 0.9 (pulled in by screencapturekit) references Metal APIs
+          # that only exist in the macOS 26 SDK, while the macos-15 images default
+          # to Xcode 16.x. The images ship Xcode 26.x alongside; select the newest.
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort | tail -1)"
+          if [ -z "$xcode" ]; then
+            echo "No Xcode 26 found on this runner image" >&2
+            ls -d /Applications/Xcode*.app >&2 || true
+            exit 1
+          fi
+          echo "Selecting $xcode"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
