@@ -170,7 +170,8 @@ extern "C" fn server_info_callback(
 ) {
     unsafe {
         let tx = &*(userdata as *const mpsc::Sender<Option<String>>);
-        let sink_name = if (*info).default_sink_name.is_null() {
+        // PulseAudio invokes this callback with a null info pointer on failure.
+        let sink_name = if info.is_null() || (*info).default_sink_name.is_null() {
             None
         } else {
             CStr::from_ptr((*info).default_sink_name)
@@ -201,6 +202,33 @@ struct LiveCapture {
 }
 
 impl LiveCapture {
+    /// Polls the connection and stream state; returns an error message once
+    /// either has failed so the session can warn that call audio stopped.
+    fn health_error(&self) -> Option<String> {
+        unsafe {
+            pa::pa_threaded_mainloop_lock(self.mainloop);
+            let context_state = pa::pa_context_get_state(self.context);
+            let stream_state = pa::pa_stream_get_state(self.stream);
+            let errno = pa::pa_context_errno(self.context);
+            pa::pa_threaded_mainloop_unlock(self.mainloop);
+            match context_state {
+                pa::PA_CONTEXT_FAILED | pa::PA_CONTEXT_TERMINATED => {
+                    let message = CStr::from_ptr(pa::pa_strerror(errno))
+                        .to_str()
+                        .unwrap_or("unknown PulseAudio error");
+                    return Some(format!("PulseAudio connection lost: {message}"));
+                }
+                _ => {}
+            }
+            match stream_state {
+                pa::PA_STREAM_FAILED | pa::PA_STREAM_TERMINATED => {
+                    Some("the PulseAudio monitor source stopped".into())
+                }
+                _ => None,
+            }
+        }
+    }
+
     fn teardown(self) {
         unsafe {
             // The mainloop is always present: it is created before LiveCapture.
@@ -237,6 +265,10 @@ fn run_monitor(
             let _ = setup_tx.send(Ok(()));
             while !stop.load(Ordering::Acquire) {
                 std::thread::sleep(Duration::from_millis(50));
+                if let Some(message) = live.health_error() {
+                    record_error(&error, message);
+                    break;
+                }
             }
             live.teardown();
         }
@@ -383,15 +415,25 @@ unsafe fn default_monitor_device(
     mainloop: *mut pa::pa_threaded_mainloop,
 ) -> Result<String, String> {
     let (tx, rx) = mpsc::channel::<Option<String>>();
-    let operation = pa::pa_context_get_server_info(
-        context,
-        Some(server_info_callback),
-        &tx as *const mpsc::Sender<Option<String>> as *mut c_void,
-    );
+    // The callback runs on the mainloop thread and may still be pending when
+    // the request times out, so the sender must outlive this function. Heap
+    // it: on success the callback has already fired and the box is reclaimed;
+    // on timeout the box is deliberately leaked (a few bytes, once per failed
+    // capture start) so a late reply cannot touch freed stack memory.
+    let tx = Box::into_raw(Box::new(tx));
+    let operation =
+        pa::pa_context_get_server_info(context, Some(server_info_callback), tx as *mut c_void);
     // The callback runs on the mainloop thread, which needs the lock released.
     pa::pa_threaded_mainloop_unlock(mainloop);
     let sink_name = rx.recv_timeout(SETUP_TIMEOUT);
     pa::pa_threaded_mainloop_lock(mainloop);
+    unsafe {
+        if sink_name.is_ok() {
+            drop(Box::from_raw(tx));
+        } else {
+            std::mem::forget(Box::from_raw(tx));
+        }
+    }
     if !operation.is_null() {
         pa::pa_operation_unref(operation);
     }
