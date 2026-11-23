@@ -15,6 +15,7 @@ import {
   renderGeneratedBrandRs,
   renderInfoIosPlist,
   renderInfoPlist,
+  normalizeEol,
   renderTauriConfig,
   validateManifest,
   type BrandManifest,
@@ -131,7 +132,7 @@ test("macOS bundle declares the microphone entitlement and usage string", () => 
   assert.match(info, /NSHumanReadableCopyright/);
   // The generated file on disk must match the manifest so `brand:check` catches
   // a hand-edited plist that would leak the reference brand.
-  assert.equal(fs.readFileSync(`${REPO_ROOT}/frontend/src-tauri/Info.plist`, "utf8"), info);
+  assert.equal(normalizeEol(fs.readFileSync(`${REPO_ROOT}/frontend/src-tauri/Info.plist`, "utf8")), info);
 
   const entitlements = fs.readFileSync(
     `${REPO_ROOT}/frontend/src-tauri/entitlements.plist`,
@@ -165,7 +166,7 @@ test("iOS bundle declares the microphone usage string and background audio", () 
   assert.match(info, /<string>audio<\/string>/);
   assert.match(info, /NSHumanReadableCopyright/);
   assert.equal(
-    fs.readFileSync(`${REPO_ROOT}/frontend/src-tauri/Info.ios.plist`, "utf8"),
+    normalizeEol(fs.readFileSync(`${REPO_ROOT}/frontend/src-tauri/Info.ios.plist`, "utf8")),
     info,
   );
 });
