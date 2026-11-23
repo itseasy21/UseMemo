@@ -26,7 +26,7 @@ Licensed under **GPL-3.0-or-later**. See [LICENSE](./LICENSE).
 | Tauri IPC commands, typed events, browser fallback | Working |
 | LiteRT-LM C++ worker source + stdio protocol | Implemented; native compilation blocked (see below) |
 | Microphone capture → WAV → on-device transcription | Working (whisper.cpp; post-recording, block-based) |
-| System-audio loopback | Implemented on macOS (ScreenCaptureKit); the gated real-capture acceptance passes on the recorded host. WASAPI backend type-checks for the Windows target but has not run on a Windows host |
+| System-audio loopback | Implemented on macOS (ScreenCaptureKit, gated real-capture acceptance passes on the recorded host), Windows (WASAPI; type-checks for the Windows target, not yet run on a Windows host), and Linux (libpulse monitor source; verified against PulseAudio on Ubuntu 22.04 — a 440 Hz test tone round-trips at exact amplitude; PipeWire via pipewire-pulse uses the same API but has not been exercised) |
 | Speaker diarization | Working on the loopback archive: on-device acoustic clustering into `Speaker 1…N`, with `You`/`Them` fallbacks. Two synthesized voices captured through loopback separate correctly; acoustic clustering, not voice identification |
 | Mobile capture | Android arm64 permission/session/capture path verified on an API 36 emulator; iOS, physical-device behavior, audible signal, and ASR in the test APK remain unverified |
 | Signed/notarized distributable | Packaging, checksums, and CI are implemented; notarization is not possible on this host because only an Apple Development certificate is installed |
