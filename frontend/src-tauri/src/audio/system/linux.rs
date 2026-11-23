@@ -35,6 +35,10 @@ pub struct SystemAudioCapture {
     stop: Arc<AtomicBool>,
     dropped: Arc<AtomicU64>,
     error: Arc<Mutex<Option<String>>>,
+    /// Keeps the audio channel connected after the worker exits (e.g. when
+    /// PulseAudio drops mid-recording) so `recv_timeout` keeps blocking
+    /// instead of the consumer busy-spinning on a disconnected channel.
+    _keepalive: SyncSender<Vec<f32>>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -46,6 +50,7 @@ impl SystemAudioCapture {
         let dropped = Arc::new(AtomicU64::new(0));
         let error = Arc::new(Mutex::new(None));
 
+        let _keepalive = audio_tx.clone();
         let thread_stop = Arc::clone(&stop);
         let thread_dropped = Arc::clone(&dropped);
         let thread_error = Arc::clone(&error);
@@ -70,6 +75,7 @@ impl SystemAudioCapture {
                 stop,
                 dropped,
                 error,
+                _keepalive,
                 worker: Some(worker),
             }),
             Ok(Err(message)) => {
